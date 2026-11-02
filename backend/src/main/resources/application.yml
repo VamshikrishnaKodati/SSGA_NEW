@@ -1,0 +1,22 @@
+spring:
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 25MB
+      enabled: true
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ssga_new_db
+    username: ssga_app
+    password: ${SSGA_DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+server:
+  port: 8080
+
+logging:
+  level:
+    org.springframework.security: DEBUG
