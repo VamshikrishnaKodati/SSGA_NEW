@@ -479,6 +479,12 @@ export default function Dashboard({ user, ability, onNavigate, onSessionExpired 
               </div>
             </>
           )}
+          {!canEmployees && !canPayroll && (
+            <div className="chart-full">
+              <Icon name="chart" size={17} />
+              <span>No chart data is available for your role and scope.</span>
+            </div>
+          )}
         </div>
       </section>
 

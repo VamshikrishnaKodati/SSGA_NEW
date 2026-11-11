@@ -716,6 +716,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 14px 16px;
+  min-height: 210px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
@@ -759,10 +760,25 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 90px;
+  height: 110px;
   color: var(--grey-500);
   font-size: 12px;
   text-align: center;
+}
+
+.chart-full {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 18px;
+  color: var(--grey-500);
+  font-size: 13px;
+  text-align: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--grey-50);
 }
 
 .chart-svg text {
