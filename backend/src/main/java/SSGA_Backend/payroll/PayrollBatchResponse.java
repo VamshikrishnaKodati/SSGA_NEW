@@ -24,7 +24,7 @@ public record PayrollBatchResponse(
 ) {
     public record EmployeeTotals(
             long employeeId,
-            String employeeCode,
+            String hrmsId,
             String name,
             BigDecimal gross,
             BigDecimal deductions,

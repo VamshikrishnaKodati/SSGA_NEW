@@ -18,7 +18,6 @@ public record PayrollUnitDetailResponse(
 
     public record EmployeeRef(
             long id,
-            String employeeCode,
             String hrmsId,
             String name,
             String designationName,

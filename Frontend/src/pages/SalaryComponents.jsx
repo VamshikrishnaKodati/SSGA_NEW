@@ -27,15 +27,15 @@ export default function SalaryComponents({ ability }) {
   return (
     <>
       <PageHeader
-        title="Salary component master"
-        subtitle="Earnings, deductions and the salary structure used when payroll lines are calculated."
+        title="Salary components"
+        subtitle="Earnings, deductions and the salary structure used when payroll lines are calculated"
         breadcrumbs={['Administration', 'Salary components']}
       />
 
       {!canView ? (
         <section className="panel">
           <div className="panel-body">
-            <Alert kind="info">The salary component master requires the salary.view permission.</Alert>
+            <Alert kind="info">You do not have access to salary components.</Alert>
           </div>
         </section>
       ) : (
@@ -49,8 +49,8 @@ export default function SalaryComponents({ ability }) {
           <section className="panel">
             <div className="panel-head">
               <div>
-                <h3>Component catalogue</h3>
-                <p>Active salary components from the database master</p>
+                <h3>Component list</h3>
+                <p>Active salary components</p>
               </div>
             </div>
 
@@ -71,7 +71,7 @@ export default function SalaryComponents({ ability }) {
                 rows={rows}
                 rowKey={(row) => row.id}
                 emptyTitle="No salary components"
-                emptyDescription="No active salary components exist in the database master."
+                emptyDescription="No active salary components are configured"
               />
             )}
 
@@ -81,8 +81,7 @@ export default function SalaryComponents({ ability }) {
                 <div>
                   <strong>Read-only</strong>
                   <p>
-                    This lists the active component master. Creating or editing components is not
-                    exposed by the API; structure changes are applied through controlled imports.
+                    Components are managed through controlled imports.
                   </p>
                 </div>
               </div>

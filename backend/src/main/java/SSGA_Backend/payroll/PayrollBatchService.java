@@ -193,7 +193,7 @@ public class PayrollBatchService {
             employeeCount++;
             totals.add(new PayrollBatchResponse.EmployeeTotals(
                     employee.id(),
-                    employee.employeeCode(),
+                    employee.hrmsId(),
                     employee.name(),
                     gross,
                     deductions,
@@ -380,18 +380,16 @@ public class PayrollBatchService {
             List<PayrollBatchDetailResponse.TransactionDetail> transactions =
                     jdbcTemplate.query(
                             """
-                            SELECT id, employee_code_snapshot, hrms_id_snapshot,
-                                   name_snapshot,
+                            SELECT id, hrms_id_snapshot, name_snapshot,
                                    gross_salary, total_deductions, net_salary,
                                    status
                             FROM public.salary_transactions
                             WHERE payroll_batch_id = ?
-                            ORDER BY employee_code_snapshot
+                            ORDER BY hrms_id_snapshot
                             """,
                             (rs, rowNum) -> new PayrollBatchDetailResponse
                                     .TransactionDetail(
                                     rs.getLong("id"),
-                                    rs.getString("employee_code_snapshot"),
                                     rs.getString("hrms_id_snapshot"),
                                     rs.getString("name_snapshot"),
                                     rs.getBigDecimal("gross_salary"),
@@ -409,7 +407,6 @@ public class PayrollBatchService {
             for (var transaction : transactions) {
                 withLines.add(new PayrollBatchDetailResponse.TransactionDetail(
                         transaction.transactionId(),
-                        transaction.employeeCode(),
                         transaction.hrmsId(),
                         transaction.name(),
                         transaction.gross(),
@@ -479,7 +476,7 @@ public class PayrollBatchService {
         if (normalizedSearch != null) {
             where.append("""
                      AND (
-                         LOWER(st.employee_code_snapshot) LIKE LOWER(?)
+                         LOWER(st.hrms_id_snapshot) LIKE LOWER(?)
                          OR LOWER(st.name_snapshot) LIKE LOWER(?)
                      )
                     """);
@@ -504,19 +501,17 @@ public class PayrollBatchService {
         List<PayrollBatchDetailResponse.TransactionDetail> items =
                 jdbcTemplate.query(
                         """
-                        SELECT st.id, st.employee_code_snapshot,
-                               st.hrms_id_snapshot, st.name_snapshot,
+                        SELECT st.id, st.hrms_id_snapshot, st.name_snapshot,
                                st.gross_salary, st.total_deductions,
                                st.net_salary, st.status
                         FROM public.salary_transactions st
                         """ + where + """
-                        ORDER BY st.employee_code_snapshot, st.id
+                        ORDER BY st.hrms_id_snapshot, st.id
                         LIMIT ? OFFSET ?
                         """,
                         (rs, rowNum) -> new PayrollBatchDetailResponse
                                 .TransactionDetail(
                                 rs.getLong("id"),
-                                rs.getString("employee_code_snapshot"),
                                 rs.getString("hrms_id_snapshot"),
                                 rs.getString("name_snapshot"),
                                 rs.getBigDecimal("gross_salary"),
@@ -549,8 +544,7 @@ public class PayrollBatchService {
         List<PayrollBatchDetailResponse.TransactionDetail> transactions =
                 jdbcTemplate.query(
                         """
-                        SELECT st.id, st.employee_code_snapshot,
-                               st.hrms_id_snapshot, st.name_snapshot,
+                        SELECT st.id, st.hrms_id_snapshot, st.name_snapshot,
                                st.gross_salary, st.total_deductions,
                                st.net_salary, st.status
                         FROM public.salary_transactions st
@@ -559,7 +553,6 @@ public class PayrollBatchService {
                         (rs, rowNum) -> new PayrollBatchDetailResponse
                                 .TransactionDetail(
                                 rs.getLong("id"),
-                                rs.getString("employee_code_snapshot"),
                                 rs.getString("hrms_id_snapshot"),
                                 rs.getString("name_snapshot"),
                                 rs.getBigDecimal("gross_salary"),
@@ -583,7 +576,6 @@ public class PayrollBatchService {
                 transactions.get(0);
         return new PayrollBatchDetailResponse.TransactionDetail(
                 transaction.transactionId(),
-                transaction.employeeCode(),
                 transaction.hrmsId(),
                 transaction.name(),
                 transaction.gross(),
@@ -683,18 +675,17 @@ public class PayrollBatchService {
                 """
                 INSERT INTO public.salary_transactions (
                     payroll_batch_id, employee_id,
-                    employee_code_snapshot, hrms_id_snapshot, name_snapshot,
+                    hrms_id_snapshot, name_snapshot,
                     wing_id_snapshot, division_id_snapshot,
                     designation_id_snapshot, grade_id_snapshot,
                     gross_salary, total_deductions, net_salary, status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'CALCULATED')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'CALCULATED')
                 RETURNING id
                 """,
                 Long.class,
                 batchId,
                 employee.id(),
-                employee.employeeCode(),
                 employee.hrmsId(),
                 employee.name(),
                 employee.wingId(),
@@ -831,7 +822,7 @@ public class PayrollBatchService {
     ) {
         return jdbcTemplate.query(
                 """
-                SELECT e.id, e.employee_code, e.hrms_id, e.name,
+                SELECT e.id, e.hrms_id, e.name,
                        e.division_id, d.wing_id, e.designation_id, e.grade_id
                 FROM public.employees e
                 JOIN public.divisions d ON d.id = e.division_id
@@ -843,11 +834,10 @@ public class PayrollBatchService {
                         AND v.effective_from <= ?
                         AND (v.effective_to IS NULL OR v.effective_to >= ?)
                   )
-                ORDER BY e.employee_code
+                ORDER BY e.hrms_id
                 """,
                 (rs, rowNum) -> new EmployeeRef(
                         rs.getLong("id"),
-                        rs.getString("employee_code"),
                         rs.getString("hrms_id"),
                         rs.getString("name"),
                         rs.getLong("division_id"),
@@ -1008,7 +998,6 @@ public class PayrollBatchService {
 
     private record EmployeeRef(
             long id,
-            String employeeCode,
             String hrmsId,
             String name,
             long divisionId,

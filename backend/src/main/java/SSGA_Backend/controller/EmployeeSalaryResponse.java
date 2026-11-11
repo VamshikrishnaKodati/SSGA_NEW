@@ -17,7 +17,7 @@ import java.util.List;
  */
 public record EmployeeSalaryResponse(
         long employeeId,
-        String employeeCode,
+        String hrmsId,
         String name,
         String asOf,
         BigDecimal basicPay,

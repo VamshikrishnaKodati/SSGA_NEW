@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createAbility, visibleNav, ROLES } from './permissions.js'
+import { canonicalRole, createAbility, visibleNav, ROLES } from './permissions.js'
 
 function navigationFor(authorities) {
   const ability = createAbility({ authorities })
@@ -64,6 +64,19 @@ test('auditors see read-only audit and report navigation', () => {
   assert.equal(auditItem.availability, undefined)
   assert.ok(!nav.includes('imports'))
   assert.ok(!nav.includes('payroll'))
+})
+
+test('legacy role codes resolve to canonical roles', () => {
+  const ability = createAbility({
+    authorities: ['ROLE_SYS_ADMIN', 'payroll.view'],
+  })
+
+  assert.equal(canonicalRole('SYS_ADMIN'), ROLES.SYSTEM_ADMIN)
+  assert.equal(canonicalRole('ROLE_GM'), ROLES.APPROVING_AUTHORITY)
+  assert.equal(canonicalRole('SO_FINANCE'), ROLES.PAYROLL_OPERATOR)
+  assert.ok(ability.isAdmin)
+  assert.ok(ability.hasRole(ROLES.SYSTEM_ADMIN))
+  assert.equal(ability.primaryRole, ROLES.SYSTEM_ADMIN)
 })
 
 test('employees only see self-service statements and profile navigation', () => {

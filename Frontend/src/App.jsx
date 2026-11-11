@@ -123,7 +123,6 @@ function RoleAssignmentSelection({ user, onActivated, onSignOut }) {
       <section className="panel role-assignment-panel">
         <div className="panel-head">
           <div>
-            <p className="eyebrow-sm">Authenticated as {user.username}</p>
             <h1>Select your active workspace</h1>
             <p>Choose one authorized role and scope. Permissions will not be combined across assignments.</p>
           </div>

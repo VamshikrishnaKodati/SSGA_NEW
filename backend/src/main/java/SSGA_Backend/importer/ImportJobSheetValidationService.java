@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -110,7 +111,7 @@ public class ImportJobSheetValidationService {
                     s.header_row_number,
                     s.headers::text AS headers_json,
                     s.column_mapping::text AS mapping_json,
-                    j.file_key
+                    COALESCE(j.corrected_file_key, j.file_key) AS file_key
                 FROM public.import_job_sheets s
                 JOIN public.import_jobs j
                   ON j.id = s.import_job_id
@@ -191,9 +192,12 @@ public class ImportJobSheetValidationService {
         }
 
         if (!columns.containsKey("employeeCode")
-                && !columns.containsKey("hrmsId")) {
+                && !columns.containsKey("hrmsId")
+                && !hasAnyIdentityColumn(columns)) {
             throw badRequest(
-                    "Map employeeCode or hrmsId before validation."
+                    "Map an employee identifier (employee code, HRMS ID, "
+                            + "Aadhaar, PAN, phone, email, PF, NPS or GPF) "
+                            + "before validation."
             );
         }
 
@@ -308,11 +312,13 @@ public class ImportJobSheetValidationService {
         // Fetch employee and component reference data in batches.
         Map<String, EmployeeRecord> employeesByCode = new HashMap<>();
         Map<String, EmployeeRecord> employeesByHrms = new HashMap<>();
+        Map<String, EmployeeRecord> employeesByIdentity = new HashMap<>();
 
         loadEmployees(
                 rows,
                 employeesByCode,
-                employeesByHrms
+                employeesByHrms,
+                employeesByIdentity
         );
 
         Map<String, ComponentRecord> components = loadComponents();
@@ -323,6 +329,7 @@ public class ImportJobSheetValidationService {
                     columns,
                     employeesByCode,
                     employeesByHrms,
+                    employeesByIdentity,
                     components
             );
         }
@@ -338,7 +345,7 @@ public class ImportJobSheetValidationService {
 
         return completeValidation(
                 jobId, sheetIndex, sheetId, sheetName, user.getUserId(),
-                rows, List.of()
+                rows, List.of(), confirmedType, components
         );
     }
 
@@ -423,6 +430,41 @@ public class ImportJobSheetValidationService {
 
             data.hrmsId = readText(
                     row, columnIndexes, columns, "hrmsId",
+                    formatter, data
+            );
+
+            data.aadhaar = readText(
+                    row, columnIndexes, columns, "aadhaar",
+                    formatter, data
+            );
+
+            data.pan = readText(
+                    row, columnIndexes, columns, "pan",
+                    formatter, data
+            );
+
+            data.contact = readText(
+                    row, columnIndexes, columns, "contact",
+                    formatter, data
+            );
+
+            data.email = readText(
+                    row, columnIndexes, columns, "email",
+                    formatter, data
+            );
+
+            data.pf = readText(
+                    row, columnIndexes, columns, "pf",
+                    formatter, data
+            );
+
+            data.nps = readText(
+                    row, columnIndexes, columns, "nps",
+                    formatter, data
+            );
+
+            data.gpf = readText(
+                    row, columnIndexes, columns, "gpf",
                     formatter, data
             );
 
@@ -655,69 +697,289 @@ public class ImportJobSheetValidationService {
         return null;
     }
 
+    private LocalDate readOptionalDate(
+            Row row,
+            Integer columnIndex,
+            String field,
+            RowData data
+    ) {
+        if (columnIndex == null) {
+            return null;
+        }
+
+        Cell cell = row.getCell(
+                columnIndex, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+
+        if (cell == null || cell.getCellType() == CellType.BLANK) {
+            return null;
+        }
+
+        if (cell.getCellType() == CellType.FORMULA) {
+            addIssue(
+                    data, "ERROR", field, "FORMULA_NOT_ALLOWED",
+                    "Formula cells are not accepted for effective dates."
+            );
+            return null;
+        }
+
+        LocalDate parsed = ImportCells.date(row, columnIndex, null);
+
+        if (parsed == null) {
+            addIssue(
+                    data, "ERROR", field, "INVALID_DATE",
+                    field + " must be a valid date. Use YYYY-MM-DD "
+                            + "or a supported day/month/year format."
+            );
+        }
+
+        return parsed;
+    }
+
+    private void validateEffectiveWindow(RowData data) {
+        if (data.effectiveFrom != null
+                && data.effectiveTo != null
+                && data.effectiveTo.isBefore(data.effectiveFrom)) {
+            addIssue(
+                    data, "ERROR", "effectiveTo",
+                    "EFFECTIVE_TO_BEFORE_FROM",
+                    "Effective To cannot be before Effective From."
+            );
+        }
+    }
+
+    private void readWideComponents(
+            Row row,
+            Map<String, Integer> columnIndexes,
+            Map<String, String> componentByCode,
+            RowData data
+    ) {
+        for (Map.Entry<String, String> entry : componentByCode.entrySet()) {
+            String code = normalizedOrNull(entry.getKey());
+            String header = entry.getValue();
+
+            if (code == null) {
+                continue;
+            }
+
+            Integer columnIndex = header == null
+                    ? null
+                    : columnIndexes.get(header);
+
+            if (columnIndex == null) {
+                addIssue(
+                        data, "ERROR", "component:" + code,
+                        "SOURCE_COLUMN_MISSING",
+                        "The mapped source column is missing: " + header
+                );
+                continue;
+            }
+
+            BigDecimal amount = readOptionalAmount(
+                    row, columnIndex, "component:" + code, data);
+
+            if (amount == null) {
+                continue;
+            }
+
+            if (amount.signum() < 0) {
+                addIssue(
+                        data, "ERROR", "component:" + code,
+                        "NEGATIVE_AMOUNT",
+                        "Negative amounts are not allowed."
+                );
+                continue;
+            }
+
+            data.componentAmounts.put(code, amount);
+        }
+    }
+
     private void loadEmployees(
             List<RowData> rows,
             Map<String, EmployeeRecord> byCode,
-            Map<String, EmployeeRecord> byHrms
+            Map<String, EmployeeRecord> byHrms,
+            Map<String, EmployeeRecord> byIdentity
     ) {
 
-        Set<String> codes = new LinkedHashSet<>();
+        Set<String> employeeCodes = new LinkedHashSet<>();
         Set<String> hrmsIds = new LinkedHashSet<>();
+        Map<String, Set<String>> valuesByType = new LinkedHashMap<>();
 
         for (RowData row : rows) {
             if (notBlank(row.employeeCode)) {
-                codes.add(normalize(row.employeeCode));
+                employeeCodes.add(normalize(row.employeeCode));
             }
             if (notBlank(row.hrmsId)) {
                 hrmsIds.add(normalize(row.hrmsId));
             }
+            for (IdentityRef ref : row.identityRefs()) {
+                valuesByType
+                        .computeIfAbsent(ref.type(), key -> new LinkedHashSet<>())
+                        .add(normalizeIdentity(ref.type(), ref.value()));
+            }
         }
 
-        loadEmployeesByField("employee_code", codes, byCode, byHrms);
-        loadEmployeesByField("hrms_id", hrmsIds, byCode, byHrms);
+        loadEmployeesByCode(employeeCodes, byCode);
+        loadEmployeesByHrms(hrmsIds, byHrms);
+        loadEmployeesByIdentity(valuesByType, byIdentity);
     }
 
-    private void loadEmployeesByField(
-            String field,
-            Set<String> values,
-            Map<String, EmployeeRecord> byCode,
-            Map<String, EmployeeRecord> byHrms
+    private void loadEmployeesByCode(
+            Set<String> employeeCodes,
+            Map<String, EmployeeRecord> byCode
     ) {
 
-        // field is selected from constants only, never request input.
-        for (List<String> chunk : chunks(values, 250)) {
-
-            String placeholders = placeholders(chunk.size());
+        for (List<String> chunk : chunks(employeeCodes, 250)) {
 
             String sql = """
                     SELECT id, employee_code, hrms_id, name, division_id
                     FROM public.employees
-                    WHERE upper(%s) IN (%s)
-                    """.formatted(field, placeholders);
+                    WHERE upper(employee_code) IN (%s)
+                    """.formatted(placeholders(chunk.size()));
 
-            List<EmployeeRecord> found = jdbcTemplate.query(
+            for (EmployeeRecord employee : jdbcTemplate.query(
                     sql,
-                    (rs, rowNum) -> new EmployeeRecord(
-                            rs.getLong("id"),
-                            rs.getString("employee_code"),
-                            rs.getString("hrms_id"),
-                            rs.getString("name"),
-                            rs.getLong("division_id")
-                    ),
+                    (rs, rowNum) -> mapEmployee(rs),
                     chunk.toArray()
-            );
-
-            for (EmployeeRecord employee : found) {
-                byCode.put(
-                        normalize(employee.employeeCode()),
-                        employee
-                );
-                byHrms.put(
-                        normalize(employee.hrmsId()),
-                        employee
-                );
+            )) {
+                byCode.put(normalize(employee.employeeCode()), employee);
             }
         }
+    }
+
+    private void loadEmployeesByHrms(
+            Set<String> hrmsIds,
+            Map<String, EmployeeRecord> byHrms
+    ) {
+
+        for (List<String> chunk : chunks(hrmsIds, 250)) {
+
+            String sql = """
+                    SELECT id, employee_code, hrms_id, name, division_id
+                    FROM public.employees
+                    WHERE upper(hrms_id) IN (%s)
+                    """.formatted(placeholders(chunk.size()));
+
+            for (EmployeeRecord employee : jdbcTemplate.query(
+                    sql,
+                    (rs, rowNum) -> mapEmployee(rs),
+                    chunk.toArray()
+            )) {
+                byHrms.put(normalize(employee.hrmsId()), employee);
+            }
+        }
+    }
+
+    private void loadEmployeesByIdentity(
+            Map<String, Set<String>> valuesByType,
+            Map<String, EmployeeRecord> byIdentity
+    ) {
+
+        for (Map.Entry<String, Set<String>> entry : valuesByType.entrySet()) {
+
+            String type = entry.getKey();
+            boolean phone = "PHONE".equals(type);
+            boolean digitsOnly = phone || "AADHAAR".equals(type);
+
+            for (List<String> chunk : chunks(entry.getValue(), 250)) {
+
+                String valueExpression = digitsOnly
+                        ? "regexp_replace(%s, '[^0-9]', '', 'g')"
+                        : "upper(%s)";
+
+                String sql;
+
+                if (phone) {
+                    sql = """
+                            SELECT e.id, e.employee_code, e.hrms_id, e.name,
+                                   e.division_id,
+                                   coalesce(e.contact_no, e.contact)
+                                       AS matched_value
+                            FROM public.employees e
+                            WHERE %s IN (%s)
+                            """.formatted(
+                            valueExpression.formatted(
+                                    "coalesce(e.contact_no, e.contact, '')"),
+                            placeholders(chunk.size())
+                    );
+                } else {
+                    sql = """
+                            SELECT e.id, e.employee_code, e.hrms_id, e.name,
+                                   e.division_id, m.identity_value AS matched_value
+                            FROM public.employee_identity_mappings m
+                            JOIN public.employees e ON e.id = m.employee_id
+                            WHERE m.identity_type = ? AND m.status = 'ACTIVE'
+                              AND %s IN (%s)
+                            """.formatted(
+                            valueExpression.formatted("m.identity_value"),
+                            placeholders(chunk.size())
+                    );
+                }
+
+                List<IdentityMatch> found;
+
+                if (phone) {
+                    found = jdbcTemplate.query(
+                            sql,
+                            (rs, rowNum) -> new IdentityMatch(
+                                    rs.getString("matched_value"),
+                                    mapEmployee(rs)
+                            ),
+                            chunk.toArray()
+                    );
+                } else {
+                    Object[] arguments = new Object[chunk.size() + 1];
+                    arguments[0] = type;
+                    int index = 1;
+                    for (String value : chunk) {
+                        arguments[index++] = value;
+                    }
+                    found = jdbcTemplate.query(
+                            sql,
+                            (rs, rowNum) -> new IdentityMatch(
+                                    rs.getString("matched_value"),
+                                    mapEmployee(rs)
+                            ),
+                            arguments
+                    );
+                }
+
+                for (IdentityMatch match : found) {
+                    byIdentity.put(
+                            type + ":" + normalizeIdentity(type, match.value()),
+                            match.employee()
+                    );
+                }
+            }
+        }
+    }
+
+    private static EmployeeRecord mapEmployee(ResultSet rs)
+            throws SQLException {
+        return new EmployeeRecord(
+                rs.getLong("id"),
+                rs.getString("employee_code"),
+                rs.getString("hrms_id"),
+                rs.getString("name"),
+                rs.getLong("division_id")
+        );
+    }
+
+    private static String normalizeIdentity(String type, String value) {
+        if ("PHONE".equals(type) || "AADHAAR".equals(type)) {
+            return value == null ? "" : value.replaceAll("[^0-9]", "");
+        }
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static boolean hasAnyIdentityColumn(Map<String, String> columns) {
+        return columns.containsKey("aadhaar")
+                || columns.containsKey("pan")
+                || columns.containsKey("contact")
+                || columns.containsKey("email")
+                || columns.containsKey("pf")
+                || columns.containsKey("nps")
+                || columns.containsKey("gpf");
     }
 
     private Map<String, ComponentRecord> loadComponents() {
@@ -748,9 +1010,35 @@ public class ImportJobSheetValidationService {
                     normalize(component.code()),
                     component
             );
+            result.putIfAbsent(
+                    ColumnMappingCatalog.componentKey(component.code()),
+                    component
+            );
         }
 
         return result;
+    }
+
+    /**
+     * Exact component-code lookup first, then a fuzzy alias fallback so source
+     * codes such as BASIC_PAY resolve to the master code BASIC.
+     */
+    private ComponentRecord resolveComponent(
+            Map<String, ComponentRecord> components,
+            String rawCode
+    ) {
+        String normalized = normalizedOrNull(rawCode);
+
+        if (normalized == null) {
+            return null;
+        }
+
+        ComponentRecord exact = components.get(normalized);
+
+        return exact != null
+                ? exact
+                : components.get(
+                        ColumnMappingCatalog.componentKey(normalized));
     }
 
     private void validateReferences(
@@ -758,10 +1046,11 @@ public class ImportJobSheetValidationService {
             Map<String, String> columns,
             Map<String, EmployeeRecord> byCode,
             Map<String, EmployeeRecord> byHrms,
+            Map<String, EmployeeRecord> byIdentity,
             Map<String, ComponentRecord> components
     ) {
 
-        resolveEmployeeReference(row, byCode, byHrms, "ERROR");
+        resolveEmployeeReference(row, byCode, byHrms, byIdentity, "ERROR", false);
 
         String componentCode = normalizedOrNull(row.componentCode);
 
@@ -772,7 +1061,7 @@ public class ImportJobSheetValidationService {
                     "Salary component code is required."
             );
         } else {
-            row.component = components.get(componentCode);
+            row.component = resolveComponent(components, componentCode);
 
             if (row.component == null) {
                 addIssue(
@@ -782,6 +1071,17 @@ public class ImportJobSheetValidationService {
                                 + componentCode
                 );
             } else {
+                if (!normalize(row.component.code()).equals(
+                        normalize(componentCode))) {
+                    addIssue(
+                            row, "WARNING", "componentCode",
+                            "COMPONENT_CODE_INTERPRETED",
+                            "Source code " + componentCode
+                                    + " was interpreted as component "
+                                    + row.component.code() + "."
+                    );
+                }
+
                 if (columns.containsKey("componentName")
                         && notBlank(row.componentName)
                         && !normalize(row.componentName).equals(
@@ -887,6 +1187,7 @@ public class ImportJobSheetValidationService {
                         SELECT
                             employee_id,
                             salary_component_id,
+                            amount,
                             effective_from,
                             effective_to
                         FROM public.employee_salary_values
@@ -916,9 +1217,11 @@ public class ImportJobSheetValidationService {
                                     "effective_to", LocalDate.class
                             );
 
+                            BigDecimal amount = rs.getBigDecimal("amount");
+
                             result.computeIfAbsent(
                                     key, ignored -> new ArrayList<>()
-                            ).add(new ExistingInterval(from, to));
+                            ).add(new ExistingInterval(from, to, amount));
                         }
                 );
             }
@@ -931,7 +1234,6 @@ public class ImportJobSheetValidationService {
             List<RowData> rows,
             Map<EmployeeComponentKey, List<ExistingInterval>> existingValues
     ) {
-
         for (RowData row : rows) {
 
             if (row.hasErrors()
@@ -982,54 +1284,149 @@ public class ImportJobSheetValidationService {
         }
     }
 
+    /**
+     * Combined sheets may update an existing effective-dated value, but only
+     * when the upload supplies an amount. Identical values are skipped and
+     * changed values are surfaced as warnings so the approver can review them.
+     */
+    private void checkCombinedExistingValues(
+            List<RowData> rows,
+            Map<EmployeeComponentKey, List<ExistingInterval>> existingValues
+    ) {
+        for (RowData row : rows) {
+            if (row.hasErrors()
+                    || row.employee == null
+                    || row.component == null
+                    || row.effectiveFrom == null
+                    || row.amount == null) {
+                continue;
+            }
+
+            EmployeeComponentKey key = new EmployeeComponentKey(
+                    row.employee.id(),
+                    row.component.id()
+            );
+
+            for (ExistingInterval interval
+                    : existingValues.getOrDefault(key, List.of())) {
+
+                boolean startsBeforeOrOn =
+                        !row.effectiveFrom.isBefore(interval.from());
+                boolean endsAfterOrOn =
+                        interval.to() == null
+                        || !row.effectiveFrom.isAfter(interval.to());
+
+                if (!startsBeforeOrOn || !endsAfterOrOn) {
+                    continue;
+                }
+
+                if (row.effectiveFrom.equals(interval.from())) {
+                    boolean sameValue = interval.amount() != null
+                            && row.amount.compareTo(interval.amount()) == 0;
+
+                    addIssue(
+                            row, "WARNING", "amount",
+                            sameValue
+                                    ? "COMPONENT_VALUE_UNCHANGED"
+                                    : "COMPONENT_VALUE_CHANGED",
+                            sameValue
+                                    ? "Existing amount " + interval.amount()
+                                            + " is unchanged; this row will be skipped."
+                                    : "Existing amount " + interval.amount()
+                                            + " will be updated to " + row.amount
+                                            + " for this effective date."
+                    );
+                } else {
+                    addIssue(
+                            row, "WARNING", "effectiveFrom",
+                            "COMPONENT_EFFECTIVE_DATE_OVERLAP",
+                            "Existing amount " + interval.amount()
+                                    + " is already effective on this date; the "
+                                    + "import will add a new effective-dated value."
+                    );
+                }
+
+                break;
+            }
+        }
+    }
+
     private void resolveEmployeeReference(
             RowData row,
             Map<String, EmployeeRecord> byCode,
             Map<String, EmployeeRecord> byHrms,
-            String notFoundSeverity
+            Map<String, EmployeeRecord> byIdentity,
+            String notFoundSeverity,
+            boolean allowTempId
     ) {
         String code = normalizedOrNull(row.employeeCode);
         String hrms = normalizedOrNull(row.hrmsId);
+        List<IdentityRef> identities = row.identityRefs();
 
-        if (code == null && hrms == null) {
+        EmployeeRecord codeMatch = code == null ? null : byCode.get(code);
+        EmployeeRecord hrmsMatch = hrms == null ? null : byHrms.get(hrms);
+
+        Map<Long, EmployeeRecord> matches = new LinkedHashMap<>();
+
+        if (codeMatch != null) {
+            matches.put(codeMatch.id(), codeMatch);
+        }
+        if (hrmsMatch != null) {
+            matches.put(hrmsMatch.id(), hrmsMatch);
+        }
+
+        for (IdentityRef ref : identities) {
+            EmployeeRecord found = byIdentity.get(
+                    ref.type() + ":"
+                            + normalizeIdentity(ref.type(), ref.value()));
+
+            if (found != null) {
+                matches.put(found.id(), found);
+            }
+        }
+
+        if (matches.size() > 1) {
             addIssue(
-                    row, "ERROR", "employeeCode/hrmsId",
-                    "EMPLOYEE_IDENTIFIER_REQUIRED",
-                    "Provide an employee code or HRMS ID."
+                    row, "ERROR", "employeeIdentifier",
+                    "EMPLOYEE_IDENTITY_MISMATCH",
+                    "The supplied identifiers refer to different employees."
             );
             return;
         }
 
-        EmployeeRecord codeMatch =
-                code == null ? null : byCode.get(code);
+        EmployeeRecord match = codeMatch != null
+                ? codeMatch
+                : hrmsMatch != null
+                        ? hrmsMatch
+                        : matches.values().stream().findFirst().orElse(null);
 
-        EmployeeRecord hrmsMatch =
-                hrms == null ? null : byHrms.get(hrms);
+        boolean hasIdentifier = code != null
+                || hrms != null
+                || !identities.isEmpty();
 
-        if (code != null && codeMatch == null
-                || hrms != null && hrmsMatch == null) {
-
-            addIssue(
-                    row, notFoundSeverity, "employeeCode/hrmsId",
-                    "EMPLOYEE_NOT_FOUND_OR_OUT_OF_SCOPE",
-                    "Employee was not found or is outside your authorized scope."
-            );
-
-        } else if (codeMatch != null
-                && hrmsMatch != null
-                && codeMatch.id() != hrmsMatch.id()) {
-
-            addIssue(
-                    row, "ERROR", "employeeCode/hrmsId",
-                    "EMPLOYEE_IDENTITY_MISMATCH",
-                    "Employee Code and HRMS ID refer to different employees."
-            );
-
-        } else {
-            row.employee = codeMatch != null
-                    ? codeMatch
-                    : hrmsMatch;
+        if (match == null) {
+            if (!hasIdentifier) {
+                if (!allowTempId) {
+                    addIssue(
+                            row, "ERROR", "employeeIdentifier",
+                            "EMPLOYEE_IDENTIFIER_REQUIRED",
+                            "Provide an employee code, HRMS ID, Aadhaar, PAN, "
+                                    + "phone, email, PF, NPS or GPF number."
+                    );
+                }
+            } else {
+                addIssue(
+                        row, notFoundSeverity, "employeeIdentifier",
+                        "EMPLOYEE_NOT_FOUND_OR_OUT_OF_SCOPE",
+                        "No employee matched the supplied code, HRMS ID or "
+                                + "identity, or the employee is outside your "
+                                + "authorized scope."
+                );
+            }
+            return;
         }
+
+        row.employee = match;
 
         if (row.employee != null
                 && notBlank(row.employeeName)
@@ -1066,8 +1463,20 @@ public class ImportJobSheetValidationService {
         Map<String, String> columns = mapping.columns();
 
         if (!columns.containsKey("employeeCode")
-                && !columns.containsKey("hrmsId")) {
-            throw badRequest("Map employeeCode or hrmsId before validation.");
+                && !columns.containsKey("hrmsId")
+                && !hasAnyIdentityColumn(columns)) {
+            throw badRequest(
+                    "Map an employee identifier (employee code, HRMS ID, "
+                            + "Aadhaar, PAN, phone, email, PF, NPS or GPF) "
+                            + "before validation."
+            );
+        }
+
+        if ("EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)
+                && !columns.containsKey("division")
+                && !columns.containsKey("divisionId")) {
+            throw badRequest(
+                    "Map division or divisionId for employee master + components.");
         }
 
         if ("PAYROLL_HISTORY".equals(type)) {
@@ -1107,6 +1516,22 @@ public class ImportJobSheetValidationService {
             if (defaultEffectiveFrom == null) {
                 throw badRequest(
                         "The default effective date must use YYYY-MM-DD.");
+            }
+        }
+
+        if ("EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)) {
+            boolean wideLayout = !mapping.components().isEmpty();
+            if (!wideLayout && (!columns.containsKey("componentCode")
+                    || !columns.containsKey("amount"))) {
+                throw badRequest(
+                        "Map componentCode and amount, or map wide component columns, "
+                                + "for employee master + components.");
+            }
+            if (!columns.containsKey("effectiveFrom")
+                    && defaultEffectiveFrom == null) {
+                throw badRequest(
+                        "Map an effectiveFrom column or set a default effective "
+                                + "date before validating employee master + components.");
             }
         }
 
@@ -1212,40 +1637,140 @@ public class ImportJobSheetValidationService {
 
         Map<String, EmployeeRecord> employeesByCode = new HashMap<>();
         Map<String, EmployeeRecord> employeesByHrms = new HashMap<>();
+        Map<String, EmployeeRecord> employeesByIdentity = new HashMap<>();
 
-        loadEmployees(rows, employeesByCode, employeesByHrms);
+        loadEmployees(
+                rows, employeesByCode, employeesByHrms, employeesByIdentity);
 
         Map<String, ComponentRecord> components =
-                loadComponents(!"PAYROLL_HISTORY".equals(type));
-        Map<Long, String> divisions = loadDivisionNames();
+                "EMPLOYEE_MASTER".equals(type)
+                        ? Map.of()
+                        : loadComponents(!"PAYROLL_HISTORY".equals(type));
+        List<DivisionMatcher.Candidate> divisions = loadDivisions();
+
+        boolean wideComponents =
+                "EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)
+                        && !mapping.components().isEmpty();
 
         for (RowData row : rows) {
+            boolean masterRow = "EMPLOYEE_MASTER".equals(type)
+                    || "EMPLOYEE_MASTER_AND_COMPONENTS".equals(type);
+
+            boolean tempIdRow = "EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)
+                    && !notBlank(row.employeeCode)
+                    && !notBlank(row.hrmsId)
+                    && row.identityRefs().isEmpty();
+
+            if (tempIdRow) {
+                row.tempIdAssigned = true;
+                addIssue(
+                        row, "WARNING", "hrmsId",
+                        "TEMP_ID_ASSIGNED",
+                        "No employee identifier supplied; a temporary "
+                                + "HRMS ID (T-####) will be assigned when the "
+                                + "employee is created."
+                );
+            }
+
             resolveEmployeeReference(
-                    row, employeesByCode, employeesByHrms,
-                    "EMPLOYEE_MASTER".equals(type) ? "WARNING" : "ERROR"
+                    row, employeesByCode, employeesByHrms, employeesByIdentity,
+                    masterRow ? "WARNING" : "ERROR",
+                    tempIdRow
             );
 
-            boolean skipComponentChecks =
-                    "EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)
-                            && !mapping.components().isEmpty();
+            if (masterRow && row.employee != null) {
+                addIssue(
+                        row, "WARNING", "employeeIdentifier",
+                        "EMPLOYEE_EXISTS_MASTER_NOT_UPDATED",
+                        "Employee already exists; employee master fields "
+                                + "will not be overwritten."
+                );
+            }
 
-            if (!"EMPLOYEE_MASTER".equals(type) && !skipComponentChecks) {
-                validateSupplementaryComponent(
-                        row, components, "PAYROLL_HISTORY".equals(type));
-
-                if (row.amount != null && row.amount.signum() < 0) {
+            if (masterRow && row.employee == null) {
+                if (!notBlank(row.employeeName)) {
                     addIssue(
-                            row, "ERROR", "amount", "NEGATIVE_AMOUNT",
-                            "Negative amounts are not allowed."
+                            row, "ERROR", "employeeName",
+                            "EMPLOYEE_NAME_REQUIRED",
+                            "Employee name is required to create an employee."
+                    );
+                }
+
+                if (!columns.containsKey("division")
+                        && !columns.containsKey("divisionId")) {
+                    addIssue(
+                            row, "ERROR", "division",
+                            "DIVISION_MAPPING_REQUIRED",
+                            "Map division or divisionId to create an employee."
+                    );
+                } else if (!notBlank(row.divisionName)
+                        && !notBlank(row.sourceDivisionId)) {
+                    addIssue(
+                            row, "ERROR", "division", "DIVISION_REQUIRED",
+                            "Division is required to create an employee."
+                    );
+                }
+
+                if (notBlank(row.hrmsId)
+                        && !normalize(row.hrmsId)
+                                .matches("(T-[0-9]{4}|[0-9]{4})")) {
+                    addIssue(
+                            row, "ERROR", "hrmsId", "INVALID_HRMS_ID",
+                            "A new employee's HRMS ID must be four digits or "
+                                    + "T- followed by four digits."
                     );
                 }
             }
 
-            validateSupplementaryDivision(row, columns, divisions);
+            if (!"EMPLOYEE_MASTER".equals(type)) {
+                if (wideComponents) {
+                    if (row.componentAmounts.isEmpty()) {
+                        addIssue(
+                                row, "WARNING", "componentColumns",
+                                "NO_COMPONENT_AMOUNTS",
+                                "No salary component amounts were found in the mapped component columns for this row; no salary values will be imported."
+                        );
+                    }
+                    for (String code : row.componentAmounts.keySet()) {
+                        if (resolveComponent(components, code) == null) {
+                            addIssue(
+                                    row, "ERROR", "component:" + code,
+                                    "UNKNOWN_OR_INACTIVE_COMPONENT",
+                                    "Salary component is unknown or inactive: "
+                                            + code
+                            );
+                        }
+                    }
+                } else {
+                    validateSupplementaryComponent(
+                            row, components, "PAYROLL_HISTORY".equals(type));
+
+                    if (row.amount != null && row.amount.signum() < 0) {
+                        addIssue(
+                                row, "ERROR", "amount", "NEGATIVE_AMOUNT",
+                                "Negative amounts are not allowed."
+                        );
+                    }
+                }
+            }
+
+            if (!"EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)
+                    || row.employee == null) {
+                validateSupplementaryDivision(row, columns, divisions);
+            }
         }
 
         if ("EMPLOYEE_MASTER".equals(type)) {
-            markEmployeeMasterDuplicates(rows);
+            markEmployeeMasterDuplicates(rows, true);
+        } else if ("EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)) {
+            if (wideComponents) {
+                markEmployeeMasterDuplicates(rows, true);
+            } else {
+                markEmployeeMasterDuplicates(rows, false);
+
+                checkCombinedExistingValues(
+                        rows, loadExistingIntervals(rows));
+            }
         } else if ("PAYROLL_HISTORY".equals(type)) {
             markHistoryDuplicates(rows);
         } else {
@@ -1254,7 +1779,7 @@ public class ImportJobSheetValidationService {
 
         return completeValidation(
                 jobId, sheetIndex, sheetId, sheetName, userId,
-                rows, sheetWarningsFor(type, headerRowNumber)
+                rows, sheetWarningsFor(type, headerRowNumber), type, components
         );
     }
 
@@ -1276,6 +1801,20 @@ public class ImportJobSheetValidationService {
                 row, columnIndexes, columns, "employeeCode", formatter, data);
         data.hrmsId = readText(
                 row, columnIndexes, columns, "hrmsId", formatter, data);
+        data.aadhaar = readText(
+                row, columnIndexes, columns, "aadhaar", formatter, data);
+        data.pan = readText(
+                row, columnIndexes, columns, "pan", formatter, data);
+        data.contact = readText(
+                row, columnIndexes, columns, "contact", formatter, data);
+        data.email = readText(
+                row, columnIndexes, columns, "email", formatter, data);
+        data.pf = readText(
+                row, columnIndexes, columns, "pf", formatter, data);
+        data.nps = readText(
+                row, columnIndexes, columns, "nps", formatter, data);
+        data.gpf = readText(
+                row, columnIndexes, columns, "gpf", formatter, data);
         data.employeeName = readText(
                 row, columnIndexes, columns, "employeeName", formatter, data);
 
@@ -1283,29 +1822,72 @@ public class ImportJobSheetValidationService {
                 || "EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)) {
             data.divisionName = readText(
                     row, columnIndexes, columns, "division", formatter, data);
+            data.sourceDivisionId = readText(
+                    row, columnIndexes, columns, "divisionId", formatter, data);
+            data.designation = readText(
+                    row, columnIndexes, columns, "designation", formatter, data);
+            data.dateOfJoining = readText(
+                    row, columnIndexes, columns, "dateOfJoining", formatter, data);
+            data.dateOfBirth = readText(
+                    row, columnIndexes, columns, "dateOfBirth", formatter, data);
+            data.employmentType = readText(
+                    row, columnIndexes, columns, "employmentType", formatter, data);
+            data.payScale = readText(
+                    row, columnIndexes, columns, "payScale", formatter, data);
+            data.basicPay = readOptionalAmount(
+                    row, columnIndexes.get(columns.get("basicPay")),
+                    "basicPay", data);
+            data.bankAccount = readText(
+                    row, columnIndexes, columns, "bankAccount", formatter, data);
+            data.ifscCode = readText(
+                    row, columnIndexes, columns, "ifscCode", formatter, data);
+            data.bankName = readText(
+                    row, columnIndexes, columns, "bankName", formatter, data);
+            data.branch = readText(
+                    row, columnIndexes, columns, "branch", formatter, data);
 
-            if (columns.containsKey("division")
-                    && !notBlank(data.divisionName)) {
-                addIssue(
-                        data, "ERROR", "division", "DIVISION_REQUIRED",
-                        "Division is required for an employee master row."
-                );
-            }
+            if ("EMPLOYEE_MASTER".equals(type)) {
+                if (columns.containsKey("division")
+                        && !notBlank(data.divisionName)) {
+                    addIssue(
+                            data, "ERROR", "division", "DIVISION_REQUIRED",
+                            "Division is required for an employee master row."
+                    );
+                }
 
-            if (columns.containsKey("employeeName")
-                    && !notBlank(data.employeeName)) {
-                addIssue(
-                        data, "ERROR", "employeeName", "EMPLOYEE_NAME_REQUIRED",
-                        "Employee name is required for an employee master row."
-                );
-            }
+                if (columns.containsKey("employeeName")
+                        && !notBlank(data.employeeName)) {
+                    addIssue(
+                            data, "ERROR", "employeeName",
+                            "EMPLOYEE_NAME_REQUIRED",
+                            "Employee name is required for an employee "
+                                    + "master row."
+                    );
+                }
 
-            if ("EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)
-                    && !componentByCode.isEmpty()) {
                 return data;
             }
 
-            return data;
+            if (!componentByCode.isEmpty()) {
+                data.effectiveFrom = readDate(
+                        row,
+                        columnIndexes.get(columns.get("effectiveFrom")),
+                        defaultEffectiveFrom,
+                        data
+                );
+                data.effectiveTo = readOptionalDate(
+                        row,
+                        columnIndexes.get(columns.get("effectiveTo")),
+                        "effectiveTo",
+                        data
+                );
+
+                validateEffectiveWindow(data);
+                readWideComponents(
+                        row, columnIndexes, componentByCode, data);
+
+                return data;
+            }
         }
 
         data.componentCode = readText(
@@ -1348,10 +1930,22 @@ public class ImportJobSheetValidationService {
             }
         }
 
-        if ("SALARY_REVISIONS".equals(type)) {
+        if ("SALARY_REVISIONS".equals(type)
+                || "EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)) {
             data.amount = readOptionalAmount(
                     row, columnIndexes.get(columns.get("amount")),
                     "amount", data);
+
+            if ("EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)
+                    && columns.containsKey("amount")
+                    && data.amount == null) {
+                addIssue(
+                        data, "WARNING", "amount",
+                        "COMPONENT_AMOUNT_SKIPPED",
+                        "Amount is blank, so this salary component will not "
+                                + "be imported."
+                );
+            }
         } else {
             data.amount = readAmount(
                     row, columnIndexes.get(columns.get("amount")), data);
@@ -1429,6 +2023,22 @@ public class ImportJobSheetValidationService {
             );
         }
 
+        if ("EMPLOYEE_MASTER_AND_COMPONENTS".equals(type)) {
+            data.effectiveFrom = readDate(
+                    row,
+                    columnIndexes.get(columns.get("effectiveFrom")),
+                    defaultEffectiveFrom,
+                    data
+            );
+            data.effectiveTo = readOptionalDate(
+                    row,
+                    columnIndexes.get(columns.get("effectiveTo")),
+                    "effectiveTo",
+                    data
+            );
+            validateEffectiveWindow(data);
+        }
+
         if ("PAYROLL_HISTORY".equals(type)) {
             data.periodLabel = resolvePeriodLabel(data.periodLabel, data);
         }
@@ -1468,6 +2078,15 @@ public class ImportJobSheetValidationService {
                     data, "ERROR", field, "INVALID_AMOUNT",
                     "Value is not a valid decimal number."
             );
+            return null;
+        }
+
+        if (value.stripTrailingZeros().scale() > 2) {
+            addIssue(
+                    data, "ERROR", field, "AMOUNT_PRECISION",
+                    "Amount cannot have more than two decimal places."
+            );
+            return null;
         }
 
         return value;
@@ -1552,7 +2171,7 @@ public class ImportJobSheetValidationService {
             return;
         }
 
-        row.component = components.get(componentCode);
+        row.component = resolveComponent(components, componentCode);
 
         if (row.component == null) {
             addIssue(
@@ -1561,6 +2180,15 @@ public class ImportJobSheetValidationService {
                             ? "UNKNOWN_COMPONENT"
                             : "UNKNOWN_OR_INACTIVE_COMPONENT",
                     "Salary component is unknown: " + componentCode
+            );
+        } else if (!normalize(row.component.code()).equals(
+                normalize(componentCode))) {
+            addIssue(
+                    row, "WARNING", "componentCode",
+                    "COMPONENT_CODE_INTERPRETED",
+                    "Source code " + componentCode
+                            + " was interpreted as component "
+                            + row.component.code() + "."
             );
         } else if (notBlank(row.category)
                 && !normalize(row.category).equals(
@@ -1575,74 +2203,93 @@ public class ImportJobSheetValidationService {
     private void validateSupplementaryDivision(
             RowData row,
             Map<String, String> columns,
-            Map<Long, String> divisions
+            List<DivisionMatcher.Candidate> divisions
     ) {
         String divisionName = normalizedOrNull(row.divisionName);
 
         if (columns.containsKey("division") && divisionName != null) {
-            boolean found = divisions.values().stream()
-                    .anyMatch(name -> normalize(name).equals(divisionName));
-
-            if (!found) {
-                addIssue(
-                        row, "ERROR", "division",
-                        "DIVISION_NOT_FOUND_OR_OUT_OF_SCOPE",
-                        "Division was not found or is outside your authorized scope."
-                );
-            }
+            validateDivisionReference(
+                    row, "division", divisions, divisionName);
         }
 
-        String divisionId = normalizedOrNull(row.sourceDivisionId);
-        if (columns.containsKey("divisionId") && divisionId != null) {
-            try {
-                long id = Long.parseLong(divisionId.replace(".0", ""));
-                if (!divisions.containsKey(id)) {
-                    addIssue(
-                            row, "ERROR", "divisionId",
-                            "DIVISION_NOT_FOUND_OR_OUT_OF_SCOPE",
-                            "Division was not found or is outside your authorized scope."
-                    );
-                }
-            } catch (NumberFormatException ex) {
-                addIssue(
-                        row, "ERROR", "divisionId", "INVALID_DIVISION_ID",
-                        "Division ID must be a valid numeric identifier."
-                );
-            }
+        String divisionRef = normalizedOrNull(row.sourceDivisionId);
+        if (columns.containsKey("divisionId") && divisionRef != null) {
+            validateDivisionReference(
+                    row, "divisionId", divisions, divisionRef);
         }
     }
 
-    private Map<Long, String> loadDivisionNames() {
-        Map<Long, String> result = new HashMap<>();
+    private void validateDivisionReference(
+            RowData row,
+            String field,
+            List<DivisionMatcher.Candidate> divisions,
+            String reference
+    ) {
+        DivisionMatcher.Resolution resolution =
+                DivisionMatcher.resolve(divisions, reference);
 
-        for (Map<String, Object> row : jdbcTemplate.queryForList(
-                "SELECT id, name FROM public.divisions")) {
-            result.put(
-                    ((Number) row.get("id")).longValue(),
-                    (String) row.get("name")
+        if (resolution.ambiguous()) {
+            addIssue(
+                    row, "ERROR", field, "DIVISION_AMBIGUOUS",
+                    "Division reference matches more than one division; map "
+                            + "Division ID instead."
+            );
+        } else if (!resolution.matched()) {
+            addIssue(
+                    row, "ERROR", field,
+                    "DIVISION_NOT_FOUND_OR_OUT_OF_SCOPE",
+                    "Division '" + reference.trim() + "' was not found. "
+                            + "Check the spelling or use the division code."
             );
         }
-
-        return result;
     }
 
-    private void markEmployeeMasterDuplicates(List<RowData> rows) {
+    private List<DivisionMatcher.Candidate> loadDivisions() {
+        return jdbcTemplate.query(
+                "SELECT id, name, code FROM public.divisions",
+                (rs, rowNum) -> new DivisionMatcher.Candidate(
+                        rs.getLong("id"),
+                        rs.getString("name"),
+                        rs.getString("code")
+                )
+        );
+    }
+
+    private void markEmployeeMasterDuplicates(
+            List<RowData> rows,
+            boolean employeeLevel
+    ) {
         Map<String, RowData> firstByKey = new LinkedHashMap<>();
 
         for (RowData row : rows) {
             String code = normalizedOrNull(row.employeeCode);
             String hrms = normalizedOrNull(row.hrmsId);
-            String key = code != null ? "C:" + code : "H:" + hrms;
+            String key = code != null
+                    ? "C:" + code
+                    : hrms != null
+                            ? "H:" + hrms
+                            : row.identityKey();
 
-            if (code == null && hrms == null) {
+            if (key == null) {
                 continue;
+            }
+
+            if (!employeeLevel) {
+                String component = normalizedOrNull(row.componentCode);
+
+                if (component != null) {
+                    key = key + "|" + component;
+                }
+                if (row.effectiveFrom != null) {
+                    key = key + "|" + row.effectiveFrom;
+                }
             }
 
             RowData first = firstByKey.putIfAbsent(key, row);
 
             if (first != null) {
                 addIssue(
-                        row, "ERROR", "employeeCode/hrmsId",
+                        row, "ERROR", "employeeIdentifier",
                         "DUPLICATE_EMPLOYEE_ROW",
                         "Employee appears more than once in this upload "
                                 + "(first seen on row " + first.rowNumber + ")."
@@ -1853,9 +2500,12 @@ public class ImportJobSheetValidationService {
             String type, int headerRowNumber
     ) {
         String message = switch (type) {
-            case "EMPLOYEE_MASTER" -> "Employee master rows are validated and "
-                    + "previewed only. Committing employee records requires an "
-                    + "approved employee-creation/matching policy from HMWSSB.";
+            case "EMPLOYEE_MASTER" -> "Existing employees are matched and "
+                    + "skipped. Missing employees will be created on approval.";
+            case "EMPLOYEE_MASTER_AND_COMPONENTS" ->
+                    "Existing employees are matched and skipped; missing "
+                            + "employees will be created on approval. Only "
+                            + "supplied salary amounts are imported.";
             default -> null;
         };
 
@@ -1863,9 +2513,13 @@ public class ImportJobSheetValidationService {
             return List.of();
         }
 
+        String code = "EMPLOYEE_MASTER".equals(type)
+                ? "IMPORT_WILL_CREATE_EMPLOYEES"
+                : "IMPORT_WILL_CREATE_EMPLOYEES_WITH_SALARY";
+
         return List.of(new ImportJobSheetValidationResponse.RowIssue(
                 headerRowNumber, "WARNING", "sheet_type",
-                "COMMIT_NOT_ENABLED", message));
+                code, message));
     }
 
     private ImportJobSheetValidationResponse completeValidation(
@@ -1875,16 +2529,23 @@ public class ImportJobSheetValidationService {
             String sheetName,
             long userId,
             List<RowData> rows,
-            List<ImportJobSheetValidationResponse.RowIssue> sheetIssues
+            List<ImportJobSheetValidationResponse.RowIssue> sheetIssues,
+            String importType,
+            Map<String, ComponentRecord> components
     ) {
         List<ImportJobSheetValidationResponse.RowIssue> allIssues =
                 new ArrayList<>(sheetIssues);
 
         Set<Integer> errorRows = new HashSet<>();
         Set<Integer> warningRows = new HashSet<>();
+        int tempIdRows = 0;
 
         for (RowData row : rows) {
             allIssues.addAll(row.issues);
+
+            if (row.tempIdAssigned) {
+                tempIdRows++;
+            }
 
             if (row.hasErrors()) {
                 errorRows.add(row.rowNumber);
@@ -1910,6 +2571,60 @@ public class ImportJobSheetValidationService {
         int errorCount = errorRows.size();
         int warningCount = warningRows.size();
 
+        Totals totals = new Totals();
+        LocalDate periodStart = null;
+        LocalDate periodEnd = null;
+
+        for (RowData row : rows) {
+            if (row.hasErrors()) {
+                continue;
+            }
+
+            LocalDate rowPeriod = row.effectiveFrom;
+
+            if (rowPeriod == null && row.periodLabel != null) {
+                try {
+                    rowPeriod = java.time.YearMonth
+                            .parse(row.periodLabel)
+                            .atDay(1);
+                } catch (RuntimeException ignored) {
+                    rowPeriod = null;
+                }
+            }
+
+            if (rowPeriod != null) {
+                periodStart = periodStart == null || rowPeriod.isBefore(periodStart)
+                        ? rowPeriod : periodStart;
+                periodEnd = periodEnd == null || rowPeriod.isAfter(periodEnd)
+                        ? rowPeriod : periodEnd;
+            }
+
+            if ("EMPLOYEE_MASTER_AND_COMPONENTS".equals(importType)) {
+                for (Map.Entry<String, BigDecimal> entry
+                        : row.componentAmounts.entrySet()) {
+                    ComponentRecord component =
+                            resolveComponent(components, entry.getKey());
+                    if (component != null) {
+                        totals.add(entry.getValue(), component.category(),
+                                component.code());
+                    }
+                }
+
+                if (row.amount != null && row.component != null) {
+                    totals.add(row.amount, row.component.category(),
+                            row.component.code());
+                }
+            } else if (!"EMPLOYEE_MASTER".equals(importType)) {
+                BigDecimal amount = "SALARY_REVISIONS".equals(importType)
+                        ? row.newAmount : row.amount;
+                String category = row.component != null
+                        ? row.component.category() : row.category;
+                String code = row.component != null
+                        ? row.component.code() : row.componentCode;
+                totals.add(amount, category, code);
+            }
+        }
+
         String newStatus = errorCount > 0 ? "HAS_ERRORS" : "VALIDATED";
 
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -1917,7 +2632,15 @@ public class ImportJobSheetValidationService {
         summary.put("validRows", validRows);
         summary.put("errorRows", errorCount);
         summary.put("warningRows", warningCount);
+        summary.put("tempIdRows", tempIdRows);
         summary.put("validationVersion", 1);
+        summary.put("earningsTotal", totals.earnings);
+        summary.put("deductionsTotal", totals.deductions);
+        summary.put("basicPayTotal", totals.basicPay);
+        summary.put("periodStart",
+                periodStart == null ? null : periodStart.toString());
+        summary.put("periodEnd",
+                periodEnd == null ? null : periodEnd.toString());
 
         String summaryJson;
         try {
@@ -1970,7 +2693,8 @@ public class ImportJobSheetValidationService {
 
         return new ImportJobSheetValidationResponse(
                 jobId, sheetIndex, sheetName, newStatus, totalRows, validRows,
-                errorCount, warningCount, allIssues.stream().limit(100).toList(),
+                errorCount, warningCount, tempIdRows,
+                allIssues.stream().limit(100).toList(),
                 message
         );
     }
@@ -2146,15 +2870,58 @@ public class ImportJobSheetValidationService {
         );
     }
 
+    private static final class Totals {
+
+        private BigDecimal earnings = BigDecimal.ZERO;
+        private BigDecimal deductions = BigDecimal.ZERO;
+        private BigDecimal basicPay = BigDecimal.ZERO;
+
+        private void add(BigDecimal amount, String category, String code) {
+            if (amount == null) {
+                return;
+            }
+
+            if ("EARNING".equalsIgnoreCase(category)) {
+                earnings = earnings.add(amount);
+            } else if ("DEDUCTION".equalsIgnoreCase(category)) {
+                deductions = deductions.add(amount);
+            }
+
+            if (code != null
+                    && ("BASIC".equalsIgnoreCase(code)
+                        || "BASIC_PAY".equalsIgnoreCase(code))) {
+                basicPay = basicPay.add(amount);
+            }
+        }
+    }
+
     private static class RowData {
 
         private final int rowNumber;
         private final List<ImportJobSheetValidationResponse.RowIssue> issues =
                 new ArrayList<>();
 
-        private String employeeCode;
         private String hrmsId;
+        private String employeeCode;
+        private String aadhaar;
+        private String pan;
+        private String contact;
+        private String email;
+        private String pf;
+        private String nps;
+        private String gpf;
+        private boolean tempIdAssigned;
         private String employeeName;
+        private String designation;
+        private String dateOfJoining;
+        private String dateOfBirth;
+        private String employmentType;
+        private String payScale;
+        private BigDecimal basicPay;
+        private String bankAccount;
+        private String ifscCode;
+        private String bankName;
+        private String branch;
         private String componentCode;
         private String componentName;
         private String category;
@@ -2164,6 +2931,9 @@ public class ImportJobSheetValidationService {
 
         private BigDecimal amount;
         private LocalDate effectiveFrom;
+        private LocalDate effectiveTo;
+        private final Map<String, BigDecimal> componentAmounts =
+                new LinkedHashMap<>();
 
         private String divisionName;
         private String sourceDivisionId;
@@ -2177,6 +2947,49 @@ public class ImportJobSheetValidationService {
 
         private RowData(int rowNumber) {
             this.rowNumber = rowNumber;
+        }
+
+        private List<IdentityRef> identityRefs() {
+            List<IdentityRef> refs = new ArrayList<>();
+
+            addIdentity(refs, "AADHAAR", aadhaar);
+            addIdentity(refs, "PAN", pan);
+            addIdentity(refs, "PHONE", contact);
+            addIdentity(refs, "EMAIL", email);
+            addIdentity(refs, "PF", pf);
+            addIdentity(refs, "NPS", nps);
+            addIdentity(refs, "GPF", gpf);
+
+            return refs;
+        }
+
+        private String identityKey() {
+            List<IdentityRef> refs = identityRefs();
+
+            if (refs.isEmpty()) {
+                return null;
+            }
+
+            StringBuilder key = new StringBuilder("I:");
+
+            for (IdentityRef ref : refs) {
+                key.append(ref.type())
+                        .append('=')
+                        .append(normalizeIdentity(ref.type(), ref.value()))
+                        .append('|');
+            }
+
+            return key.toString();
+        }
+
+        private static void addIdentity(
+                List<IdentityRef> refs,
+                String type,
+                String value
+        ) {
+            if (value != null && !value.isBlank()) {
+                refs.add(new IdentityRef(type, value));
+            }
         }
 
         private boolean hasErrors() {
@@ -2196,6 +3009,18 @@ public class ImportJobSheetValidationService {
             String hrmsId,
             String name,
             long divisionId
+    ) {
+    }
+
+    private record IdentityRef(
+            String type,
+            String value
+    ) {
+    }
+
+    private record IdentityMatch(
+            String value,
+            EmployeeRecord employee
     ) {
     }
 
@@ -2222,7 +3047,8 @@ public class ImportJobSheetValidationService {
 
     private record ExistingInterval(
             LocalDate from,
-            LocalDate to
+            LocalDate to,
+            BigDecimal amount
     ) {
     }
 }

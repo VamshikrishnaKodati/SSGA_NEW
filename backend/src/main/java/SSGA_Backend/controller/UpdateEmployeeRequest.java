@@ -5,8 +5,8 @@ import java.time.LocalDate;
 /**
  * Editable employee master fields.
  *
- * <p>{@code employeeCode} (identifier) and {@code divisionId} (a transfer,
- * managed through employee_transfers) are intentionally not editable here.
+ * <p>{@code divisionId} (a transfer, managed through employee_transfers) is
+ * intentionally not editable here.
  * {@code hrmsId} is only applied when a non-blank value is supplied so a
  * temporary identifier is never silently cleared.
  *

@@ -5,10 +5,10 @@
  */
 
 export const SHEET_TYPES = [
-  { value: 'EMPLOYEE_MASTER', label: 'Employee master (review only — cannot commit)' },
-  { value: 'EMPLOYEE_MASTER_AND_COMPONENTS', label: 'Employee master + salary components' },
-  { value: 'SALARY_ENTITLEMENTS', label: 'Salary entitlements' },
-  { value: 'PAYROLL_HISTORY', label: 'Payroll history (review only — cannot commit)' },
+  { value: 'EMPLOYEE_MASTER', label: 'New employee registration' },
+  { value: 'EMPLOYEE_MASTER_AND_COMPONENTS', label: 'New employee + salary components' },
+  { value: 'SALARY_ENTITLEMENTS', label: 'Existing employee salary update' },
+  { value: 'PAYROLL_HISTORY', label: 'Payroll history (component-detail rows)' },
   { value: 'SALARY_REVISIONS', label: 'Salary revisions' },
   { value: 'REFERENCE_ONLY', label: 'Reference only (no import)' },
   { value: 'SKIP', label: 'Skip this sheet' },
@@ -20,15 +20,17 @@ export const TARGET_FIELDS = {
     ['designation', 'Designation'], ['wing', 'Wing'], ['division', 'Division'], ['divisionId', 'Division ID'],
     ['dateOfJoining', 'Date of joining'], ['dateOfBirth', 'Date of birth'], ['employmentType', 'Employment type'],
     ['payScale', 'Pay scale'], ['basicPay', 'Basic pay'], ['contact', 'Contact'], ['pan', 'PAN'],
-    ['aadhaar', 'Aadhaar'], ['employeeStatus', 'Employee status'], ['bankAccount', 'Bank account'],
+    ['aadhaar', 'Aadhaar'], ['pf', 'PF number'], ['nps', 'NPS number'], ['gpf', 'GPF number'],
+    ['email', 'Email'], ['employeeStatus', 'Employee status'], ['bankAccount', 'Bank account'],
     ['ifscCode', 'IFSC code'], ['bankName', 'Bank name'], ['branch', 'Branch'],
   ],
   EMPLOYEE_MASTER_AND_COMPONENTS: [
     ['employeeCode', 'Employee code'], ['hrmsId', 'HRMS ID'], ['employeeName', 'Employee name'],
     ['designation', 'Designation'], ['wing', 'Wing'], ['division', 'Division'], ['divisionId', 'Division ID'],
     ['dateOfJoining', 'Date of joining'], ['dateOfBirth', 'Date of birth'], ['employmentType', 'Employment type'],
-    ['payScale', 'Pay scale'], ['basicPay', 'Basic pay'], ['contact', 'Contact'], ['pan', 'PAN'],
-    ['aadhaar', 'Aadhaar'], ['employeeStatus', 'Employee status'], ['bankAccount', 'Bank account'],
+    ['payScale', 'Pay scale'], ['contact', 'Contact'], ['pan', 'PAN'],
+    ['aadhaar', 'Aadhaar'], ['pf', 'PF number'], ['nps', 'NPS number'], ['gpf', 'GPF number'],
+    ['email', 'Email'], ['employeeStatus', 'Employee status'], ['bankAccount', 'Bank account'],
     ['ifscCode', 'IFSC code'], ['bankName', 'Bank name'], ['branch', 'Branch'], ['effectiveFrom', 'Effective from'],
     ['effectiveTo', 'Effective to'], ['componentCode', 'Component code'], ['componentName', 'Component name'],
     ['category', 'Category'], ['amount', 'Amount'],
@@ -80,7 +82,7 @@ export const OPTION_FIELDS = {
 
 export const SUPPORTS_WIDE = new Set(['SALARY_ENTITLEMENTS', 'PAYROLL_HISTORY', 'EMPLOYEE_MASTER_AND_COMPONENTS'])
 export const VALIDATABLE_TYPE = 'SALARY_ENTITLEMENTS'
-export const VALIDATABLE_TYPES = new Set(['SALARY_ENTITLEMENTS', 'SALARY_REVISIONS', 'EMPLOYEE_MASTER_AND_COMPONENTS'])
+export const VALIDATABLE_TYPES = new Set(['SALARY_ENTITLEMENTS', 'SALARY_REVISIONS', 'EMPLOYEE_MASTER', 'EMPLOYEE_MASTER_AND_COMPONENTS'])
 
 export const CONFIDENCE = {
   HIGH: 'HIGH',
@@ -101,6 +103,13 @@ export function validationBlocker(draft) {
     (component) => component.code?.trim() && component.header,
   )
 
+  if (draft.type === 'EMPLOYEE_MASTER') {
+    if (!hasEmployeeIdentity) return 'Map HRMS ID or Employee code.'
+    if (!columns.employeeName) return 'Map Employee name.'
+    if (!columns.division && !columns.divisionId) return 'Map Division or Division ID.'
+    return ''
+  }
+
   if (draft.type === 'EMPLOYEE_MASTER_AND_COMPONENTS') {
     const layout = draft.options?.layout
     if (layout !== 'LONG' && layout !== 'WIDE') {
@@ -108,6 +117,7 @@ export function validationBlocker(draft) {
     }
     if (!hasEmployeeIdentity) return 'Map HRMS ID or Employee code.'
     if (!columns.employeeName) return 'Map Employee name.'
+    if (!columns.division && !columns.divisionId) return 'Map Division or Division ID.'
     if (layout === 'LONG' && (!columns.componentCode || !columns.amount)) {
       return 'Map Component code and Amount for LONG layout.'
     }
@@ -230,11 +240,24 @@ export function applyAutoMap(draft, autoMap) {
     }
   })
 
+  // A source column can be mapped only once. In a combined master + components
+  // sheet a header like GPF is a salary component, so the component suggestion
+  // wins over an identity field that shares the header.
+  const componentHeaders = new Set(nextComponents.map((component) => component.header).filter(Boolean))
+  Object.keys(columns).forEach((field) => {
+    if (componentHeaders.has(columns[field])) delete columns[field]
+  })
+
+  const nextType = draft.type || (SHEET_TYPES.some((type) => type.value === autoMap?.importType) ? autoMap.importType : '')
+
   return {
     ...draft,
+    type: nextType,
     columns,
     components: nextComponents,
     autoMapResult: autoMap || null,
+    mappingResult: null,
+    validation: null,
   }
 }
 

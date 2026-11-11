@@ -5,7 +5,7 @@ public record SalaryStatementResponse(
         String statementNo,
         long transactionId,
         long employeeId,
-        String employeeCode,
+        String hrmsId,
         String employeeName,
         long periodId,
         String periodLabel,

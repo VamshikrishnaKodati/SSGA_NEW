@@ -29,7 +29,6 @@ public record PayrollBatchDetailResponse(
 ) {
     public record TransactionDetail(
             long transactionId,
-            String employeeCode,
             String hrmsId,
             String name,
             BigDecimal gross,

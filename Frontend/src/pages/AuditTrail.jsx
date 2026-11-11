@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { auditApi } from '../services/api.js'
-import { formatDateTime, friendlyError } from '../lib/format.js'
+import { formatDateTime, friendlyError, humanizeStatus } from '../lib/format.js'
 import {
   Alert,
   DataTable,
@@ -75,8 +75,8 @@ export default function AuditTrail({ onSessionExpired }) {
       label: 'User',
       render: (row) => row.username || (row.userId ? `User #${row.userId}` : '—'),
     },
-    { key: 'action', label: 'Action' },
-    { key: 'entityType', label: 'Module / record type' },
+    { key: 'action', label: 'Action', render: (row) => humanizeStatus(row.action) },
+    { key: 'entityType', label: 'Module / record type', render: (row) => humanizeStatus(row.entityType) },
     { key: 'entityId', label: 'Record ID' },
     { key: 'divisionId', label: 'Division', render: (row) => row.divisionId ?? '—' },
     { key: 'reason', label: 'Reason', render: (row) => row.reason || '—' },
@@ -86,7 +86,7 @@ export default function AuditTrail({ onSessionExpired }) {
     <>
       <PageHeader
         title="Audit trail"
-        subtitle="Read-only history of material actions, restricted to your authorized scope."
+        subtitle="Read-only history of material actions in your scope"
         breadcrumbs={['Administration', 'Audit trail']}
       />
 
@@ -129,7 +129,7 @@ export default function AuditTrail({ onSessionExpired }) {
               value={filters.module}
               onChange={updateFilter}
               maxLength={60}
-              placeholder="e.g. PAYROLL_BATCH"
+              placeholder="Filter by module"
             />
           </label>
           <label className="field">
@@ -140,7 +140,7 @@ export default function AuditTrail({ onSessionExpired }) {
               value={filters.action}
               onChange={updateFilter}
               maxLength={40}
-              placeholder="e.g. PAYROLL_FINALIZE"
+              placeholder="Filter by action"
             />
           </label>
           <label className="field">
@@ -172,7 +172,7 @@ export default function AuditTrail({ onSessionExpired }) {
               rows={page.events || []}
               rowKey={(row) => row.id}
               emptyTitle="No audit events found"
-              emptyDescription="Try a different filter, or check back after actions have been recorded."
+              emptyDescription="Try a different filter, or check back after actions have been recorded"
             />
           )}
         </div>

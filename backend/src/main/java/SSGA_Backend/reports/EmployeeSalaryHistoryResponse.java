@@ -5,7 +5,7 @@ import java.util.List;
 
 public record EmployeeSalaryHistoryResponse(
         long employeeId,
-        String employeeCode,
+        String hrmsId,
         String name,
         List<HistoryRow> rows
 ) {

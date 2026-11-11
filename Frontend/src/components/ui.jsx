@@ -38,9 +38,8 @@ const ICON_PATHS = {
   trendUp: 'M3 17l6-6 4 4 7-7M21 8v5h-5',
 }
 
-export function Icon({ name, size = 16, strokeWidth = 1.7, className = '' }) {
+export function Icon({ name, size = 16, strokeWidth = 1.5, className = '' }) {
   const d = ICON_PATHS[name] || ICON_PATHS.info
-  const solid = name === 'grid' || name === 'file' || name === 'badge' || name === 'building' || name === 'layers' || name === 'shield' || name === 'server' || name === 'lock'
 
   return (
     <svg
@@ -48,8 +47,8 @@ export function Icon({ name, size = 16, strokeWidth = 1.7, className = '' }) {
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill={solid ? 'currentColor' : 'none'}
-      stroke={solid ? 'none' : 'currentColor'}
+      fill="none"
+      stroke="currentColor"
       strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -163,16 +162,13 @@ export function ErrorState({ title = 'Could not load this view', description, on
   )
 }
 
-export function Unavailable({ title, description, missingEndpoint }) {
+export function Unavailable({ title, description }) {
   return (
     <div className="availability-note">
       <Icon name="info" size={17} />
       <div>
         <strong>{title}</strong>
         <p>{description}</p>
-        {missingEndpoint && (
-          <p className="inline-meta">Required backend endpoint: <code>{missingEndpoint}</code> — not implemented yet.</p>
-        )}
       </div>
     </div>
   )
@@ -215,7 +211,9 @@ export function DataTable({
                 >
                   {column.label}
                   {column.sortable && isSorted && (
-                    <span className="sort-caret">{sort.direction === 'asc' ? '▲' : '▼'}</span>
+                    <span className={`sort-caret${sort.direction === 'asc' ? ' asc' : ''}`}>
+                      <Icon name="chevronDown" size={12} />
+                    </span>
                   )}
                 </th>
               )
@@ -261,11 +259,11 @@ export function Pagination({ page, totalPages, total, pageSize, onChange }) {
     <div className="pagination">
       <span>Showing {start}–{end} of {total}</span>
       <div className="pagination-controls">
-        <button type="button" onClick={() => onChange(1)} disabled={page <= 1} aria-label="First page">«</button>
+        <button type="button" onClick={() => onChange(1)} disabled={page <= 1} aria-label="First page">First</button>
         <button type="button" onClick={() => onChange(page - 1)} disabled={page <= 1} aria-label="Previous page">Prev</button>
         <span className="inline-meta">Page {page} of {totalPages}</span>
         <button type="button" onClick={() => onChange(page + 1)} disabled={page >= totalPages} aria-label="Next page">Next</button>
-        <button type="button" onClick={() => onChange(totalPages)} disabled={page >= totalPages} aria-label="Last page">»</button>
+        <button type="button" onClick={() => onChange(totalPages)} disabled={page >= totalPages} aria-label="Last page">Last</button>
       </div>
     </div>
   )
@@ -340,7 +338,7 @@ export function ReasonDialog({ open, title, description, label, required = true,
         <span>{label}{required ? ' (required)' : ''}</span>
         <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} disabled={busy} autoFocus />
       </label>
-      {invalid && <p className="field-hint" style={{ color: 'var(--danger-700)' }}>A reason is required by the server.</p>}
+          {invalid && <p className="field-hint" style={{ color: 'var(--danger-700)' }}>Enter a reason to continue.</p>}
     </ConfirmDialog>
   )
 }
@@ -432,9 +430,9 @@ export function Kpi({ label, value, foot, tone, unavailable, unavailableReason, 
         {onClick && <Icon name="chevronRight" size={13} className="kpi-arrow" />}
       </div>
       <div className="kpi-value">{unavailable ? 'Unavailable' : value}</div>
-      {(unavailable ? (unavailableReason || 'Backend metric not available') : foot) && (
+      {(unavailable ? (unavailableReason || 'No data for this scope') : foot) && (
         <div className="kpi-foot">
-          {unavailable ? (unavailableReason || 'Backend metric not available') : foot}
+          {unavailable ? (unavailableReason || 'No data for this scope') : foot}
         </div>
       )}
     </>

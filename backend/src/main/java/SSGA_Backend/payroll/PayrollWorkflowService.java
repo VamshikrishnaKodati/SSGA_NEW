@@ -504,7 +504,7 @@ public class PayrollWorkflowService {
     private PayrollReadinessResponse readiness(Batch batch) {
         List<TransactionCheck> checks = jdbcTemplate.query(
                 """
-                SELECT st.id, st.employee_code_snapshot, st.name_snapshot,
+                SELECT st.id, st.hrms_id_snapshot, st.name_snapshot,
                        st.status, st.gross_salary, st.total_deductions,
                        st.net_salary,
                        COUNT(l.id) AS line_count,
@@ -519,14 +519,14 @@ public class PayrollWorkflowService {
                 LEFT JOIN public.salary_transaction_lines l
                   ON l.salary_transaction_id = st.id
                 WHERE st.payroll_batch_id = ?
-                GROUP BY st.id, st.employee_code_snapshot, st.name_snapshot,
+                GROUP BY st.id, st.hrms_id_snapshot, st.name_snapshot,
                          st.status, st.gross_salary, st.total_deductions,
                          st.net_salary
-                ORDER BY st.employee_code_snapshot
+                ORDER BY st.hrms_id_snapshot
                 """,
                 (rs, rowNum) -> new TransactionCheck(
                         rs.getLong("id"),
-                        rs.getString("employee_code_snapshot"),
+                        rs.getString("hrms_id_snapshot"),
                         rs.getString("name_snapshot"),
                         rs.getString("status"),
                         rs.getBigDecimal("gross_salary"),
@@ -547,7 +547,7 @@ public class PayrollWorkflowService {
         }
 
         for (TransactionCheck check : checks) {
-            String who = check.employeeCode() + " (" + check.name() + ")";
+            String who = check.hrmsId() + " (" + check.name() + ")";
 
             if (check.lineCount() == 0) {
                 issues.add(who + " has no salary component lines.");
@@ -850,7 +850,7 @@ public class PayrollWorkflowService {
 
     private record TransactionCheck(
             long id,
-            String employeeCode,
+            String hrmsId,
             String name,
             String status,
             BigDecimal gross,

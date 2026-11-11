@@ -78,13 +78,13 @@ public class PayrollReportService {
 
         List<EmployeeSalaryHistoryResponse> headers = jdbcTemplate.query(
                 """
-                SELECT employee_code, name
+                SELECT hrms_id, name
                 FROM public.employees
                 WHERE id = ?
                 """,
                 (rs, rowNum) -> new EmployeeSalaryHistoryResponse(
                         employeeId,
-                        rs.getString("employee_code"),
+                        rs.getString("hrms_id"),
                         rs.getString("name"),
                         List.of()
                 ),
@@ -153,7 +153,7 @@ public class PayrollReportService {
 
         return new EmployeeSalaryHistoryResponse(
                 employeeId,
-                headers.get(0).employeeCode(),
+                headers.get(0).hrmsId(),
                 headers.get(0).name(),
                 rows
         );

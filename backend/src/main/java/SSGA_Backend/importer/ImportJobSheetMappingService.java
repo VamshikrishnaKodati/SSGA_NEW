@@ -278,28 +278,32 @@ public class ImportJobSheetMappingService {
                     "designation", "wing", "division", "divisionId",
                     "dateOfJoining", "dateOfBirth", "employmentType",
                     "payScale", "basicPay", "contact", "pan",
-                    "aadhaar", "employeeStatus", "bankAccount",
+                    "aadhaar", "pf", "nps", "gpf", "email",
+                    "employeeStatus", "bankAccount",
                     "ifscCode", "bankName", "branch"
             );
             case "EMPLOYEE_MASTER_AND_COMPONENTS" -> Set.of(
                     "employeeCode", "hrmsId", "employeeName",
                     "designation", "wing", "division", "divisionId",
                     "dateOfJoining", "dateOfBirth", "employmentType",
-                    "payScale", "basicPay", "contact", "pan",
-                    "aadhaar", "employeeStatus", "bankAccount",
+                    "payScale", "contact", "pan",
+                    "aadhaar", "pf", "nps", "gpf", "email",
+                    "employeeStatus", "bankAccount",
                     "ifscCode", "bankName", "branch",
                     "effectiveFrom", "effectiveTo",
                     "componentCode", "componentName", "category",
                     "amount", "componentColumns"
             );
             case "SALARY_ENTITLEMENTS" -> Set.of(
-                    "employeeCode", "hrmsId", "employeeName",
+                    "employeeCode", "hrmsId", "aadhaar", "pan", "contact", "email",
+                    "pf", "nps", "gpf", "employeeName",
                     "division", "divisionId", "effectiveFrom",
                     "effectiveTo", "componentCode", "componentName",
                     "category", "amount", "componentColumns"
             );
             case "PAYROLL_HISTORY" -> Set.of(
-                    "employeeCode", "hrmsId", "employeeName",
+                    "employeeCode", "hrmsId", "aadhaar", "pan", "contact", "email",
+                    "pf", "nps", "gpf", "employeeName",
                     "division", "divisionId", "period",
                     "payrollMonth", "payrollYear", "componentCode",
                     "componentName", "category", "amount",
@@ -307,7 +311,8 @@ public class ImportJobSheetMappingService {
                     "transactionStatus", "componentColumns"
             );
             case "SALARY_REVISIONS" -> Set.of(
-                    "employeeCode", "hrmsId", "employeeName",
+                    "employeeCode", "hrmsId", "aadhaar", "pan", "contact", "email",
+                    "pf", "nps", "gpf", "employeeName",
                     "effectiveFrom", "componentCode", "componentName",
                     "oldAmount", "newAmount", "amount", "reason"
             );
@@ -547,6 +552,18 @@ public class ImportJobSheetMappingService {
         }
     }
 
+    private static boolean hasEmployeeIdentifier(Map<String, Object> columns) {
+        return columns.containsKey("employeeCode")
+                || columns.containsKey("hrmsId")
+                || columns.containsKey("aadhaar")
+                || columns.containsKey("pan")
+                || columns.containsKey("contact")
+                || columns.containsKey("email")
+                || columns.containsKey("pf")
+                || columns.containsKey("nps")
+                || columns.containsKey("gpf");
+    }
+
     private void validateRequiredMappings(
             String type,
             Map<String, Object> columns,
@@ -558,16 +575,15 @@ public class ImportJobSheetMappingService {
         }
 
         boolean hasEmployeeIdentity =
-                columns.containsKey("employeeCode")
-                        || columns.containsKey("hrmsId");
+                hasEmployeeIdentifier(columns);
 
         if (type.equals("EMPLOYEE_MASTER")) {
             if (!hasEmployeeIdentity
                     || !columns.containsKey("employeeName")) {
                 throw new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
-                        "Employee master mapping requires employeeCode "
-                                + "or hrmsId and employeeName."
+                        "Employee master mapping requires employeeCode or "
+                                + "hrmsId and employeeName."
                 );
             }
 
@@ -582,22 +598,16 @@ public class ImportJobSheetMappingService {
             boolean wideLayout =
                     columns.containsKey("componentColumns");
 
-            boolean hasEffectiveDate =
-                    columns.containsKey("effectiveFrom")
-                            || options.containsKey("effectiveFromDefault");
-
             if (!hasEmployeeIdentity
                     || !columns.containsKey("employeeName")
-                    || !(longLayout || wideLayout)
-                    || !hasEffectiveDate) {
+                    || !(longLayout || wideLayout)) {
 
                 throw new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
                         "Employee master + salary components require "
                                 + "employeeCode or hrmsId, employeeName, "
                                 + "either componentCode plus amount or "
-                                + "componentColumns, and an effective "
-                                + "date column or an explicit default date."
+                                + "componentColumns."
                 );
             }
 
@@ -612,20 +622,14 @@ public class ImportJobSheetMappingService {
             boolean wideLayout =
                     columns.containsKey("componentColumns");
 
-            boolean hasEffectiveDate =
-                    columns.containsKey("effectiveFrom")
-                            || options.containsKey("effectiveFromDefault");
-
             if (!hasEmployeeIdentity
-                    || !(longLayout || wideLayout)
-                    || !hasEffectiveDate) {
+                    || !(longLayout || wideLayout)) {
 
                 throw new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
                         "Salary entitlements require employeeCode or "
                                 + "hrmsId, either componentCode plus amount "
-                                + "or componentColumns, and an effective "
-                                + "date column or an explicit default date."
+                                + "or componentColumns."
                 );
             }
 

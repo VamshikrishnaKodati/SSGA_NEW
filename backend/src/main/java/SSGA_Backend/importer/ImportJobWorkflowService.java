@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.DateTimeException;
 import java.util.ArrayList;
@@ -45,7 +46,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class ImportJobWorkflowService {
 
     private static final Set<String> EDITABLE_STATUSES =
-            Set.of("VALIDATED", "HAS_ERRORS");
+            Set.of("VALIDATED", "HAS_ERRORS", "DRAFT_IMPORTED");
 
     private final JdbcTemplate jdbcTemplate;
     private final RlsContext rlsContext;
@@ -99,8 +100,8 @@ public class ImportJobWorkflowService {
 
         if (!EDITABLE_STATUSES.contains(job.status())) {
             throw conflict(
-                    "Only a validated job can be submitted. Current status: "
-                            + job.status()
+                    "Only a validated or draft-imported job can be submitted. "
+                            + "Current status: " + job.status()
             );
         }
 
@@ -123,7 +124,7 @@ public class ImportJobWorkflowService {
                     approved_by = NULL,
                     approved_at = NULL
                 WHERE id = ?
-                  AND status IN ('VALIDATED', 'HAS_ERRORS')
+                  AND status IN ('VALIDATED', 'DRAFT_IMPORTED')
                 """,
                 actor,
                 jobId
@@ -146,7 +147,7 @@ public class ImportJobWorkflowService {
     public ImportJobWorkflowResponse approve(
             long jobId,
             ImportJobDecisionRequest request
-    ) {
+    ) throws IOException {
         rlsContext.setCurrentUser();
 
         JobInfo job = requireJob(jobId);
@@ -193,6 +194,35 @@ public class ImportJobWorkflowService {
         recordEvent(jobId, null, "APPROVE", job.status(), "APPROVED", remarks);
         audit(jobId, "IMPORT_APPROVE", job.status(), "APPROVED", remarks);
 
+        if (job.draftImported()) {
+            int started = jdbcTemplate.update(
+                    """
+                    UPDATE public.import_jobs
+                    SET status = 'IMPORTING'
+                    WHERE id = ?
+                      AND status = 'APPROVED'
+                    """,
+                    jobId
+            );
+
+            if (started != 1) {
+                throw conflict(
+                        "The approved draft could not be imported. Refresh and retry."
+                );
+            }
+
+            recordEvent(jobId, null, "AUTO_IMPORT", "APPROVED",
+                    "IMPORTING", "Approved draft imported automatically.");
+
+            ImportResult result = runImport(job, "IMPORT_APPROVE");
+
+            return withResult(
+                    loadResponse(jobId,
+                            "Approved and imported. Review the import summary."),
+                    result
+            );
+        }
+
         return loadResponse(jobId,
                 "Approved. A third user must finalize the import.");
     }
@@ -225,16 +255,20 @@ public class ImportJobWorkflowService {
         long actor = currentUserId();
         enforceSeparate(actor, job, "reject");
 
+        String targetStatus = job.draftImported()
+                ? "DRAFT_IMPORTED" : "VALIDATED";
+
         int updated = jdbcTemplate.update(
                 """
                 UPDATE public.import_jobs
-                SET status = 'VALIDATED',
+                SET status = ?,
                     rejection_reason = ?,
                     submitted_by = NULL,
                     submitted_at = NULL
                 WHERE id = ?
                   AND status = 'AWAITING_APPROVAL'
                 """,
+                targetStatus,
                 reason,
                 jobId
         );
@@ -243,11 +277,89 @@ public class ImportJobWorkflowService {
             throw conflict("The job could not be rejected. Refresh and retry.");
         }
 
-        recordEvent(jobId, null, "REJECT", job.status(), "VALIDATED", reason);
-        audit(jobId, "IMPORT_REJECT", job.status(), "VALIDATED", reason);
+        recordEvent(jobId, null, "REJECT", job.status(), targetStatus, reason);
+        audit(jobId, "IMPORT_REJECT", job.status(), targetStatus, reason);
 
         return loadResponse(jobId,
-                "Rejected. The uploader can correct and resubmit.");
+                "Rejected. The uploader can correct the draft and resubmit.");
+    }
+
+    @Transactional(transactionManager = "dataSourceTransactionManager")
+    public List<ImportJobWorkflowEventResponse> events(long jobId) {
+        rlsContext.setCurrentUser();
+        requireJob(jobId);
+
+        return jdbcTemplate.query(
+                """
+                SELECT e.id, e.action, e.previous_status, e.new_status,
+                       e.actor_user_id, u.display_name AS actor_name,
+                       e.details::text AS details, e.created_at
+                FROM public.import_job_workflow_events e
+                LEFT JOIN public.users u ON u.id = e.actor_user_id
+                WHERE e.import_job_id = ?
+                ORDER BY e.created_at DESC, e.id DESC
+                """,
+                (rs, rowNum) -> new ImportJobWorkflowEventResponse(
+                        rs.getLong("id"),
+                        rs.getString("action"),
+                        rs.getString("previous_status"),
+                        rs.getString("new_status"),
+                        nullableLong(rs, "actor_user_id"),
+                        rs.getString("actor_name"),
+                        rs.getString("details"),
+                        rs.getObject("created_at", OffsetDateTime.class)
+                ),
+                jobId
+        );
+    }
+
+    @Transactional(transactionManager = "dataSourceTransactionManager")
+    public ImportJobWorkflowResponse importDraft(long jobId) {
+        rlsContext.setCurrentUser();
+
+        JobInfo job = requireJob(jobId);
+
+        if (!"VALIDATED".equals(job.status())) {
+            throw conflict(
+                    "Only a validated job can be imported as a draft. "
+                            + "Current status: " + job.status()
+            );
+        }
+
+        if (job.validRows() <= 0) {
+            throw conflict("There are no valid rows to import.");
+        }
+
+        long actor = currentUserId();
+
+        int updated = jdbcTemplate.update(
+                """
+                UPDATE public.import_jobs
+                SET status = 'DRAFT_IMPORTED',
+                    draft_imported_by = ?,
+                    draft_imported_at = now(),
+                    rejection_reason = NULL
+                WHERE id = ?
+                  AND status = 'VALIDATED'
+                """,
+                actor,
+                jobId
+        );
+
+        if (updated != 1) {
+            throw conflict(
+                    "The draft could not be imported. Refresh and retry."
+            );
+        }
+
+        recordEvent(jobId, null, "IMPORT_DRAFT", job.status(),
+                "DRAFT_IMPORTED",
+                "Draft created. It is not part of payroll until approved.");
+        audit(jobId, "IMPORT_DRAFT", job.status(), "DRAFT_IMPORTED",
+                "Draft imported for approval.");
+
+        return loadResponse(jobId,
+                "Draft imported. Submit for approval when ready.");
     }
 
     @Transactional(
@@ -300,6 +412,22 @@ public class ImportJobWorkflowService {
 
         recordEvent(jobId, null, "FINALIZE", job.status(), "IMPORTING", null);
 
+        ImportResult result = runImport(job, "IMPORT_FINALIZE");
+
+        return withResult(
+                loadResponse(
+                        jobId,
+                        "Import finished with status " + loadStatus(jobId) + "."
+                ),
+                result
+        );
+    }
+
+    private ImportResult runImport(JobInfo job, String auditAction)
+            throws IOException {
+
+        long jobId = job.id();
+
         ImportProgressTracker progress = new ImportProgressTracker(
                 jobId, importRecordCount(jobId), progressService
         );
@@ -348,16 +476,18 @@ public class ImportJobWorkflowService {
                 "imported=" + result.importedRows()
                         + "; skipped=" + result.skippedRows()
                         + "; errors=" + result.errorRows());
-        audit(jobId, "IMPORT_FINALIZE", "IMPORTING", newStatus,
+        audit(jobId, auditAction, "IMPORTING", newStatus,
                 "imported=" + result.importedRows()
                         + "; skipped=" + result.skippedRows()
                         + "; errors=" + result.errorRows());
 
-        ImportJobWorkflowResponse response = loadResponse(
-                jobId,
-                "Import finished with status " + newStatus + "."
-        );
+        return result;
+    }
 
+    private ImportJobWorkflowResponse withResult(
+            ImportJobWorkflowResponse response,
+            ImportResult result
+    ) {
         return new ImportJobWorkflowResponse(
                 response.jobId(),
                 response.uploadedBy(),
@@ -373,6 +503,14 @@ public class ImportJobWorkflowService {
                 result.earningsTotal(),
                 result.deductionsTotal(),
                 response.message()
+        );
+    }
+
+    private String loadStatus(long jobId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT status FROM public.import_jobs WHERE id = ?",
+                String.class,
+                jobId
         );
     }
 
@@ -513,11 +651,11 @@ public class ImportJobWorkflowService {
                         sheetResult = importPayrollHistory(
                                 job, sheet, progress);
                 case "EMPLOYEE_MASTER" ->
-                        throw conflict(
-                                "Worksheet '" + sheet.sheetName() + "' is "
-                                + sheet.confirmedType() + ", which is "
-                                + "validated for review only. "
-                                + "reclassify it as SKIP or REFERENCE_ONLY.");
+                        sheetResult = importEmployees(
+                                job, sheet, progress, false);
+                case "EMPLOYEE_MASTER_AND_COMPONENTS" ->
+                        sheetResult = importEmployees(
+                                job, sheet, progress, true);
                 default -> {
                     skipped += sheet.dataRowsEstimate();
                     progress.skip(
@@ -559,7 +697,8 @@ public class ImportJobWorkflowService {
     ) throws IOException {
 
         String fileKey = jdbcTemplate.queryForObject(
-                "SELECT file_key FROM public.import_jobs WHERE id = ?",
+                "SELECT COALESCE(corrected_file_key, file_key) "
+                        + "FROM public.import_jobs WHERE id = ?",
                 String.class,
                 job.id()
         );
@@ -760,6 +899,805 @@ public class ImportJobWorkflowService {
 
         return new SheetResult(imported, skipped, errors, earningsTotal,
                 deductionsTotal);
+    }
+
+    private SheetResult importEmployees(
+            JobInfo job,
+            ImportSheet sheet,
+            ImportProgressTracker progress,
+            boolean withComponents
+    ) throws IOException {
+
+        String fileKey = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(corrected_file_key, file_key) "
+                        + "FROM public.import_jobs WHERE id = ?",
+                String.class,
+                job.id()
+        );
+
+        Path filePath = storageRoot.resolve(fileKey).normalize();
+
+        if (!filePath.startsWith(storageRoot) || !Files.isRegularFile(filePath)) {
+            throw new IllegalStateException("Stored workbook was not found.");
+        }
+
+        SheetMapping mapping = SheetMapping.parse(
+                jsonMapper, sheet.mappingJson());
+        Map<String, String> columns = mapping.columns();
+
+        if (columns.get("employeeCode") == null
+                && columns.get("hrmsId") == null
+                && columns.get("aadhaar") == null
+                && columns.get("pan") == null
+                && columns.get("contact") == null
+                && columns.get("email") == null
+                && columns.get("pf") == null
+                && columns.get("nps") == null
+                && columns.get("gpf") == null) {
+            throw conflict("Sheet " + sheet.sheetName()
+                    + " has no employee identifier mapping.");
+        }
+
+        if (sheet.headerRowNumber() == null || sheet.headerRowNumber() < 1) {
+            throw conflict("Sheet " + sheet.sheetName()
+                    + " has no header row.");
+        }
+
+        List<String> headers = Arrays.asList(
+                jsonMapper.readValue(sheet.headersJson(), String[].class)
+        );
+
+        Map<String, Integer> headerIndexes = new HashMap<>();
+
+        for (int index = 0; index < headers.size(); index++) {
+            headerIndexes.putIfAbsent(headers.get(index), index);
+        }
+
+        Map<String, Long> employeeIndex = loadEmployeeIndex();
+        List<DivisionMatcher.Candidate> divisions = loadDivisionCandidates();
+        Map<String, Long> components = new HashMap<>();
+        Map<Long, String> categoryByComponent = new HashMap<>();
+        loadImportComponents(components, categoryByComponent);
+        Map<String, Long> designations = loadDesignations();
+
+        int imported = 0;
+        int skipped = 0;
+        int errors = 0;
+        BigDecimal earningsTotal = BigDecimal.ZERO;
+        BigDecimal deductionsTotal = BigDecimal.ZERO;
+
+        DataFormatter formatter = new DataFormatter();
+
+        try (Workbook workbook = WorkbookFactory.create(filePath.toFile())) {
+
+            var workbookSheet = workbook.getSheetAt(sheet.sheetIndex());
+            int headerIndex = sheet.headerRowNumber() - 1;
+
+            for (int index = headerIndex + 1;
+                 index <= workbookSheet.getLastRowNum();
+                 index++) {
+
+                Row row = workbookSheet.getRow(index);
+
+                if (row == null || ImportCells.isBlankRow(row)) {
+                    continue;
+                }
+
+                int importedBefore = imported;
+                int skippedBefore = skipped;
+                int errorsBefore = errors;
+
+                try {
+                    EmployeeValues values = readEmployeeValues(
+                            row, headerIndexes, columns, formatter);
+
+                    Long employeeId = resolveIndexedEmployee(
+                            employeeIndex, values);
+
+                    boolean created = false;
+
+                    if (employeeId == null) {
+                        if (!notBlank(values.name())) {
+                            throw new IllegalArgumentException(
+                                    "Employee name is required.");
+                        }
+
+                        DivisionMatcher.Resolution resolution =
+                                DivisionMatcher.resolve(
+                                        divisions,
+                                        firstNotBlank(
+                                                values.divisionName(),
+                                                values.divisionCode()));
+
+                        if (!resolution.matched()) {
+                            throw new IllegalArgumentException(
+                                    resolution.ambiguous()
+                                            ? "Division is ambiguous."
+                                            : "Division was not found.");
+                        }
+
+                        DivisionMatcher.Candidate division = divisions.stream()
+                                .filter(item -> item.id() == resolution.id())
+                                .findFirst()
+                                .orElseThrow();
+
+                        String employeeCode = firstNotBlank(
+                                values.employeeCode(), values.hrmsId());
+
+                        boolean temporary = employeeCode == null;
+
+                        if (temporary) {
+                            employeeCode = nextTemporaryId(employeeIndex);
+                        }
+
+                        Long designationId = designations.get(
+                                normalize(values.designation()));
+
+                        employeeId = insertEmployee(
+                                values,
+                                division,
+                                designationId,
+                                employeeCode,
+                                values.hrmsId(),
+                                temporary
+                        );
+
+                        indexEmployee(employeeIndex, employeeId, values);
+                        created = true;
+                    }
+
+                    int rowWrites = 0;
+
+                    if (withComponents) {
+                        Map<String, BigDecimal> amounts =
+                                readComponentAmounts(
+                                        row, headerIndexes, columns, mapping,
+                                        formatter);
+
+                        if (!amounts.isEmpty() && !columns.containsKey("effectiveFrom")
+                                && mapping.effectiveFromDefault() == null) {
+                            throw new IllegalArgumentException(
+                                    "Effective date is required.");
+                        }
+
+                        LocalDate effectiveFrom = readDate(
+                                row,
+                                headerIndexes,
+                                columns.get("effectiveFrom"),
+                                mapping.effectiveFromDefault()
+                        );
+
+                        LocalDate effectiveTo = readDate(
+                                row,
+                                headerIndexes,
+                                columns.get("effectiveTo"),
+                                null
+                        );
+
+                        if (!amounts.isEmpty() && effectiveFrom == null) {
+                            throw new IllegalArgumentException(
+                                    "Effective date is required.");
+                        }
+
+                        if (effectiveTo != null && effectiveFrom != null
+                                && effectiveTo.isBefore(effectiveFrom)) {
+                            throw new IllegalArgumentException(
+                                    "Effective To cannot be before Effective From.");
+                        }
+
+                        for (Map.Entry<String, BigDecimal> entry
+                                : amounts.entrySet()) {
+
+                            Long componentId = components.get(
+                                    normalize(entry.getKey()));
+
+                            if (componentId == null) {
+                                throw new IllegalArgumentException(
+                                        "Unknown salary component: "
+                                                + entry.getKey());
+                            }
+
+                            ComponentWrite write = writeComponent(
+                                    employeeId,
+                                    componentId,
+                                    entry.getValue(),
+                                    effectiveFrom,
+                                    effectiveTo,
+                                    job,
+                                    sheet,
+                                    index + 1
+                            );
+
+                            if (write != ComponentWrite.SKIPPED) {
+                                rowWrites++;
+
+                                String category =
+                                        categoryByComponent.get(componentId);
+
+                                if ("EARNING".equals(category)) {
+                                    earningsTotal = earningsTotal
+                                            .add(entry.getValue());
+                                } else {
+                                    deductionsTotal = deductionsTotal
+                                            .add(entry.getValue());
+                                }
+                            }
+                        }
+                    }
+
+                    if (created || rowWrites > 0) {
+                        imported++;
+                    } else {
+                        skipped++;
+                    }
+
+                } catch (DataIntegrityViolationException ex) {
+                    errors++;
+                } catch (RuntimeException ex) {
+                    errors++;
+                } finally {
+                    progress.record(
+                            imported - importedBefore,
+                            skipped - skippedBefore,
+                            errors - errorsBefore
+                    );
+                }
+            }
+        }
+
+        return new SheetResult(imported, skipped, errors, earningsTotal,
+                deductionsTotal);
+    }
+
+    private EmployeeValues readEmployeeValues(
+            Row row,
+            Map<String, Integer> headerIndexes,
+            Map<String, String> columns,
+            DataFormatter formatter
+    ) {
+        return new EmployeeValues(
+                readText(row, headerIndexes, formatter,
+                        columns.get("employeeCode")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("hrmsId")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("employeeName")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("designation")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("contact")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("aadhaar")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("pan")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("email")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("pf")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("nps")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("gpf")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("bankAccount")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("ifscCode")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("bankName")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("branch")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("dateOfBirth")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("dateOfJoining")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("employmentType")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("payScale")),
+                readAmount(row, headerIndexes, columns.get("basicPay")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("division")),
+                readText(row, headerIndexes, formatter,
+                        columns.get("divisionId"))
+        );
+    }
+
+    private Map<String, BigDecimal> readComponentAmounts(
+            Row row,
+            Map<String, Integer> headerIndexes,
+            Map<String, String> columns,
+            SheetMapping mapping,
+            DataFormatter formatter
+    ) {
+        Map<String, BigDecimal> result = new LinkedHashMap<>();
+
+        if (!mapping.components().isEmpty()) {
+            for (Map.Entry<String, String> component
+                    : mapping.components().entrySet()) {
+                BigDecimal amount = readAmount(
+                        row, headerIndexes, component.getValue());
+
+                if (amount != null) {
+                    result.put(component.getKey(), amount);
+                }
+            }
+
+            return result;
+        }
+
+        String componentCode = readText(
+                row, headerIndexes, formatter,
+                columns.get("componentCode"));
+
+        BigDecimal amount = readAmount(
+                row, headerIndexes, columns.get("amount"));
+
+        if (componentCode != null && amount != null) {
+            result.put(componentCode, amount);
+        }
+
+        return result;
+    }
+
+    private long insertEmployee(
+            EmployeeValues values,
+            DivisionMatcher.Candidate division,
+            Long designationId,
+            String employeeCode,
+            String hrmsId,
+            boolean temporary
+    ) {
+        Long hmwssbDivisionId = findHmwssbDivisionId(division);
+        LocalDate dateOfBirth = parseOptionalDate(values.dateOfBirth());
+        LocalDate dateOfJoining = parseOptionalDate(values.dateOfJoining());
+
+        return jdbcTemplate.queryForObject(
+                """
+                INSERT INTO public.employees (
+                    employee_code, hrms_id, division_id, hmwssb_division_id,
+                    name, designation_id, contact_no, date_of_birth,
+                    date_of_joining, employment_type, pay_scale, basic_pay,
+                    aadhaar_no, pan_no, email, pf_account_no, nps_id,
+                    gpf_account_no, bank_account_no, ifsc_code, bank_name,
+                    branch_name, is_temporary_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          ?, ?, ?, ?, ?, ?)
+                RETURNING id
+                """,
+                Long.class,
+                employeeCode,
+                trimmed(hrmsId),
+                division.id(),
+                hmwssbDivisionId,
+                values.name().trim(),
+                designationId,
+                digits(values.contact()),
+                dateOfBirth,
+                dateOfJoining,
+                trimmed(values.employmentType()),
+                trimmed(values.payScale()),
+                values.basicPay() == null
+                        ? BigDecimal.ZERO : values.basicPay(),
+                digits(values.aadhaar()),
+                upperTrim(values.pan()),
+                lowerTrim(values.email()),
+                upperTrim(values.pf()),
+                upperTrim(values.nps()),
+                upperTrim(values.gpf()),
+                trimmed(values.bankAccount()),
+                upperTrim(values.ifscCode()),
+                trimmed(values.bankName()),
+                trimmed(values.branch()),
+                temporary
+        );
+    }
+
+    private ComponentWrite writeComponent(
+            long employeeId,
+            long componentId,
+            BigDecimal amount,
+            LocalDate effectiveFrom,
+            LocalDate effectiveTo,
+            JobInfo job,
+            ImportSheet sheet,
+            int sourceRowNumber
+    ) {
+        List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                """
+                SELECT id, amount
+                FROM public.employee_salary_values
+                WHERE employee_id = ?
+                  AND salary_component_id = ?
+                  AND effective_from = ?
+                """,
+                employeeId,
+                componentId,
+                effectiveFrom
+        );
+
+        String source = "IMPORT_JOB:" + job.id();
+
+        if (existing.isEmpty()) {
+            int inserted = jdbcTemplate.update(
+                    """
+                    INSERT INTO public.employee_salary_values (
+                        employee_id, salary_component_id, amount,
+                        effective_from, effective_to, source,
+                        import_job_id, import_job_sheet_id, import_row_number
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (employee_id, salary_component_id,
+                                 effective_from)
+                    DO NOTHING
+                    """,
+                    employeeId,
+                    componentId,
+                    amount,
+                    effectiveFrom,
+                    effectiveTo,
+                    source,
+                    job.id(),
+                    sheet.id(),
+                    sourceRowNumber
+            );
+
+            return inserted == 1
+                    ? ComponentWrite.INSERTED : ComponentWrite.SKIPPED;
+        }
+
+        Object current = existing.get(0).get("amount");
+
+        if (current instanceof BigDecimal currentAmount
+                && currentAmount.compareTo(amount) == 0) {
+            return ComponentWrite.SKIPPED;
+        }
+
+        if (effectiveTo == null) {
+            jdbcTemplate.update(
+                    """
+                    UPDATE public.employee_salary_values
+                    SET amount = ?, source = ?, import_job_id = ?,
+                        import_job_sheet_id = ?, import_row_number = ?,
+                        updated_at = now()
+                    WHERE id = ?
+                    """,
+                    amount,
+                    source,
+                    job.id(),
+                    sheet.id(),
+                    sourceRowNumber,
+                    ((Number) existing.get(0).get("id")).longValue()
+            );
+        } else {
+            jdbcTemplate.update(
+                    """
+                    UPDATE public.employee_salary_values
+                    SET amount = ?, effective_to = ?, source = ?,
+                        import_job_id = ?, import_job_sheet_id = ?,
+                        import_row_number = ?, updated_at = now()
+                    WHERE id = ?
+                    """,
+                    amount,
+                    effectiveTo,
+                    source,
+                    job.id(),
+                    sheet.id(),
+                    sourceRowNumber,
+                    ((Number) existing.get(0).get("id")).longValue()
+            );
+        }
+
+        return ComponentWrite.UPDATED;
+    }
+
+    private Map<String, Long> loadEmployeeIndex() {
+        Map<String, Long> index = new HashMap<>();
+
+        for (Map<String, Object> row : jdbcTemplate.queryForList(
+                """
+                SELECT id, employee_code, hrms_id, aadhaar_no, pan_no,
+                       contact, contact_no, email, pf_account_no, nps_id,
+                       gpf_account_no
+                FROM public.employees
+                """
+        )) {
+            indexValues(
+                    index,
+                    ((Number) row.get("id")).longValue(),
+                    (String) row.get("employee_code"),
+                    (String) row.get("hrms_id"),
+                    (String) row.get("aadhaar_no"),
+                    (String) row.get("pan_no"),
+                    (String) row.get("contact_no") != null
+                            ? (String) row.get("contact_no")
+                            : (String) row.get("contact"),
+                    (String) row.get("email"),
+                    (String) row.get("pf_account_no"),
+                    (String) row.get("nps_id"),
+                    (String) row.get("gpf_account_no")
+            );
+        }
+
+        for (Map<String, Object> row : jdbcTemplate.queryForList(
+                """
+                SELECT employee_id, identity_type, identity_value
+                FROM public.employee_identity_mappings
+                WHERE status = 'ACTIVE'
+                """
+        )) {
+            putIndex(
+                    index,
+                    identityKey(
+                            (String) row.get("identity_type"),
+                            (String) row.get("identity_value")),
+                    ((Number) row.get("employee_id")).longValue()
+            );
+        }
+
+        return index;
+    }
+
+    private void indexEmployee(
+            Map<String, Long> index,
+            long employeeId,
+            EmployeeValues values
+    ) {
+        indexValues(
+                index,
+                employeeId,
+                values.employeeCode(),
+                values.hrmsId(),
+                values.aadhaar(),
+                values.pan(),
+                values.contact(),
+                values.email(),
+                values.pf(),
+                values.nps(),
+                values.gpf()
+        );
+    }
+
+    private static void indexValues(
+            Map<String, Long> index,
+            long employeeId,
+            String employeeCode,
+            String hrmsId,
+            String aadhaar,
+            String pan,
+            String contact,
+            String email,
+            String pf,
+            String nps,
+            String gpf
+    ) {
+        putIndex(index, "CODE:" + normalize(employeeCode), employeeId);
+        putIndex(index, "HRMS:" + normalize(hrmsId), employeeId);
+        putIndex(index, "AADHAAR:" + digits(aadhaar), employeeId);
+        putIndex(index, "PAN:" + upperTrim(pan), employeeId);
+        putIndex(index, "CONTACT:" + digits(contact), employeeId);
+        putIndex(index, "EMAIL:" + lowerTrim(email), employeeId);
+        putIndex(index, "PF:" + upperTrim(pf), employeeId);
+        putIndex(index, "NPS:" + upperTrim(nps), employeeId);
+        putIndex(index, "GPF:" + upperTrim(gpf), employeeId);
+    }
+
+    private static void putIndex(
+            Map<String, Long> index,
+            String key,
+            long employeeId
+    ) {
+        if (key != null && !key.endsWith(":") && !key.endsWith(":null")) {
+            index.putIfAbsent(key, employeeId);
+        }
+    }
+
+    private Long resolveIndexedEmployee(
+            Map<String, Long> index,
+            EmployeeValues values
+    ) {
+        Set<Long> found = new java.util.LinkedHashSet<>();
+
+        addFound(found, index.get("CODE:" + normalize(values.employeeCode())));
+        addFound(found, index.get("HRMS:" + normalize(values.hrmsId())));
+        addFound(found, index.get("AADHAAR:" + digits(values.aadhaar())));
+        addFound(found, index.get("PAN:" + upperTrim(values.pan())));
+        addFound(found, index.get("CONTACT:" + digits(values.contact())));
+        addFound(found, index.get("EMAIL:" + lowerTrim(values.email())));
+        addFound(found, index.get("PF:" + upperTrim(values.pf())));
+        addFound(found, index.get("NPS:" + upperTrim(values.nps())));
+        addFound(found, index.get("GPF:" + upperTrim(values.gpf())));
+
+        if (found.size() > 1) {
+            throw new IllegalArgumentException(
+                    "The supplied identifiers refer to different employees.");
+        }
+
+        return found.isEmpty() ? null : found.iterator().next();
+    }
+
+    private static void addFound(Set<Long> found, Long employeeId) {
+        if (employeeId != null) {
+            found.add(employeeId);
+        }
+    }
+
+    private static String identityKey(String type, String value) {
+        if (type == null) {
+            return null;
+        }
+
+        String normalized = switch (type) {
+            case "AADHAAR", "PHONE" -> digits(value);
+            case "EMAIL" -> lowerTrim(value);
+            default -> upperTrim(value);
+        };
+
+        return "MAP:" + type + ":" + normalized;
+    }
+
+    private List<DivisionMatcher.Candidate> loadDivisionCandidates() {
+        return jdbcTemplate.query(
+                "SELECT id, name, code FROM public.divisions",
+                (rs, rowNum) -> new DivisionMatcher.Candidate(
+                        rs.getLong("id"),
+                        rs.getString("name"),
+                        rs.getString("code")
+                )
+        );
+    }
+
+    private Long findHmwssbDivisionId(
+            DivisionMatcher.Candidate division
+    ) {
+        List<Long> found = jdbcTemplate.queryForList(
+                """
+                SELECT id FROM public.hmwssb_divisions
+                WHERE division_code = ? OR division_name = ?
+                ORDER BY division_code = ? DESC
+                LIMIT 1
+                """,
+                Long.class,
+                division.code(),
+                division.name(),
+                division.code()
+        );
+
+        return found.isEmpty() ? null : found.get(0);
+    }
+
+    private Map<String, Long> loadDesignations() {
+        Map<String, Long> designations = new HashMap<>();
+
+        for (Map<String, Object> row : jdbcTemplate.queryForList(
+                "SELECT id, name FROM public.designations")) {
+            designations.putIfAbsent(
+                    normalize((String) row.get("name")),
+                    ((Number) row.get("id")).longValue()
+            );
+        }
+
+        return designations;
+    }
+
+    private void loadImportComponents(
+            Map<String, Long> components,
+            Map<Long, String> categories
+    ) {
+        for (Map<String, Object> row : jdbcTemplate.queryForList(
+                """
+                SELECT id, component_code, category
+                FROM public.salary_components
+                WHERE status = 'ACTIVE'
+                """
+        )) {
+            long id = ((Number) row.get("id")).longValue();
+            String code = (String) row.get("component_code");
+
+            components.putIfAbsent(normalize(code), id);
+            components.putIfAbsent(
+                    ColumnMappingCatalog.componentKey(code), id);
+            categories.put(id, (String) row.get("category"));
+        }
+    }
+
+    private static String nextTemporaryId(Map<String, Long> index) {
+        int next = 1;
+
+        for (String key : index.keySet()) {
+            if (!key.startsWith("HRMS:T-") && !key.startsWith("CODE:T-")) {
+                continue;
+            }
+
+            String suffix = key.substring(key.lastIndexOf('-') + 1);
+
+            try {
+                next = Math.max(next, Integer.parseInt(suffix) + 1);
+            } catch (NumberFormatException ignored) {
+                // Non-numeric temporary codes do not participate in numbering.
+            }
+        }
+
+        String candidate = "T-" + String.format(Locale.ROOT, "%04d", next);
+
+        while (index.containsKey("HRMS:" + candidate)
+                || index.containsKey("CODE:" + candidate)) {
+            next++;
+            candidate = "T-" + String.format(Locale.ROOT, "%04d", next);
+        }
+
+        return candidate;
+    }
+
+    private static LocalDate parseOptionalDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        LocalDate parsed = ImportCells.parseDate(value);
+
+        if (parsed == null) {
+            throw new IllegalArgumentException(
+                    "Invalid date value: " + value);
+        }
+
+        return parsed;
+    }
+
+    private static String firstNotBlank(String first, String second) {
+        return notBlank(first) ? first : notBlank(second) ? second : null;
+    }
+
+    private static boolean notBlank(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private static String digits(String value) {
+        if (!notBlank(value)) {
+            return null;
+        }
+
+        String digits = value.replaceAll("[^0-9]", "");
+        return digits.isEmpty() ? null : digits;
+    }
+
+    private static String upperTrim(String value) {
+        return notBlank(value) ? value.trim().toUpperCase(Locale.ROOT) : null;
+    }
+
+    private static String lowerTrim(String value) {
+        return notBlank(value) ? value.trim().toLowerCase(Locale.ROOT) : null;
+    }
+
+    private record EmployeeValues(
+            String employeeCode,
+            String hrmsId,
+            String name,
+            String designation,
+            String contact,
+            String aadhaar,
+            String pan,
+            String email,
+            String pf,
+            String nps,
+            String gpf,
+            String bankAccount,
+            String ifscCode,
+            String bankName,
+            String branch,
+            String dateOfBirth,
+            String dateOfJoining,
+            String employmentType,
+            String payScale,
+            BigDecimal basicPay,
+            String divisionName,
+            String divisionCode
+    ) {
+    }
+
+    private enum ComponentWrite {
+        INSERTED,
+        UPDATED,
+        SKIPPED
     }
 
     private SheetResult importPayrollHistory(
@@ -1145,7 +2083,8 @@ public class ImportJobWorkflowService {
     ) throws IOException {
 
         String fileKey = jdbcTemplate.queryForObject(
-                "SELECT file_key FROM public.import_jobs WHERE id = ?",
+                "SELECT COALESCE(corrected_file_key, file_key) "
+                        + "FROM public.import_jobs WHERE id = ?",
                 String.class,
                 job.id()
         );
@@ -1387,7 +2326,8 @@ public class ImportJobWorkflowService {
     ) throws IOException {
 
         String fileKey = jdbcTemplate.queryForObject(
-                "SELECT file_key FROM public.import_jobs WHERE id = ?",
+                "SELECT COALESCE(corrected_file_key, file_key) "
+                        + "FROM public.import_jobs WHERE id = ?",
                 String.class,
                 jobId
         );
@@ -1730,7 +2670,8 @@ public class ImportJobWorkflowService {
         List<JobInfo> jobs = jdbcTemplate.query(
                 """
                 SELECT id, status, uploaded_by, submitted_by, approved_by,
-                       finalized_by, valid_rows, rejection_reason
+                       finalized_by, valid_rows, rejection_reason,
+                       draft_imported_at IS NOT NULL AS draft_imported
                 FROM public.import_jobs
                 WHERE id = ?
                 """,
@@ -1742,7 +2683,8 @@ public class ImportJobWorkflowService {
                         nullableLong(rs, "approved_by"),
                         nullableLong(rs, "finalized_by"),
                         rs.getInt("valid_rows"),
-                        rs.getString("rejection_reason")
+                        rs.getString("rejection_reason"),
+                        rs.getBoolean("draft_imported")
                 ),
                 jobId
         );
@@ -1980,7 +2922,8 @@ public class ImportJobWorkflowService {
             Long approvedBy,
             Long finalizedBy,
             int validRows,
-            String rejectionReason
+            String rejectionReason,
+            boolean draftImported
     ) {
     }
 

@@ -159,7 +159,7 @@ export default function OrganizationMaster({ ability, onSessionExpired }) {
       <>
         <PageHeader
           title="Organization master"
-          subtitle="Organization, payroll units and assigned employees."
+          subtitle="Organization, payroll units and assigned employees"
           breadcrumbs={['Administration', 'Organization master']}
         />
         <section className="panel">
@@ -178,7 +178,7 @@ export default function OrganizationMaster({ ability, onSessionExpired }) {
     <>
       <PageHeader
         title="Organization master"
-        subtitle="Organization → Parent group → Payroll unit → Employee. Proposed unit register, editable and auditable."
+        subtitle="Organization, parent groups, payroll units and employees in one editable register"
         breadcrumbs={['Administration', 'Organization master']}
         actions={(
           <>
@@ -190,7 +190,7 @@ export default function OrganizationMaster({ ability, onSessionExpired }) {
               className="btn"
               onClick={() => setUnitForm({ mode: 'create', unit: null })}
               disabled={!canManage}
-              title={canManage ? 'Add a payroll unit' : 'Requires organization.manage permission'}
+                title={canManage ? 'Add a payroll unit' : 'Your role cannot add payroll units'}
             >
               <Icon name="plus" size={14} /> New unit
             </button>
@@ -306,16 +306,16 @@ export default function OrganizationMaster({ ability, onSessionExpired }) {
         <section className="panel section-gap">
           <div className="panel-head">
             <div>
-              <h3>Unit register provenance</h3>
-              <p>How the proposed register maps to source documents and what still needs a decision.</p>
+              <h3>Register notes</h3>
+              <p>How the register maps to source documents and what still needs a decision.</p>
             </div>
           </div>
           <div className="panel-body">
             <Alert kind="warning">
               <strong>Pending items for authorized review</strong>
-              <p><strong>O&amp;M Divisions XIII, XXII, XXIII</strong> carry marks in the source register — seeded active but flagged; not removed.</p>
-              <p><strong>O&amp;M Circle V</strong> appears only in the directory listing, not the register — flagged for verification.</p>
-              <p><strong>PCC-III</strong> is crossed out — seeded inactive and flagged; never deleted.</p>
+              <p><strong>O&amp;M Divisions XIII, XXII, XXIII</strong> carry marks in the source register; they remain active and flagged for review.</p>
+              <p><strong>O&amp;M Circle V</strong> appears only in the directory listing, not the register; flagged for verification.</p>
+              <p><strong>PCC-III</strong> is crossed out in the source register; it remains inactive and flagged, never deleted.</p>
               <p><strong>Electrical Project Division</strong> — source register name vs. official website &ldquo;Electrical Division&rdquo;; source name preserved.</p>
             </Alert>
           </div>
@@ -371,7 +371,7 @@ export default function OrganizationMaster({ ability, onSessionExpired }) {
         <ConfirmDialog
           open
           title={`Reactivate ${statusAction.unit.name}?`}
-          description="The unit will be available for assignment again."
+          description="The unit will be available for assignment again"
           confirmLabel="Activate unit"
           busy={statusBusy}
           onConfirm={() => runStatusChange(null)}
@@ -466,7 +466,7 @@ function ParentGroupsPanel({ groups, canManage, onAdd, onEdit }) {
           className="btn ghost sm"
           onClick={onAdd}
           disabled={!canManage}
-          title={canManage ? 'Add a parent group' : 'Requires organization.manage permission'}
+                title={canManage ? 'Add a parent group' : 'Your role cannot add parent groups'}
         >
           <Icon name="plus" size={13} /> Add group
         </button>
@@ -477,7 +477,7 @@ function ParentGroupsPanel({ groups, canManage, onAdd, onEdit }) {
         ) : groups.error ? (
           <Alert kind="error">{groups.error}</Alert>
         ) : (groups.data || []).length === 0 ? (
-          <EmptyState title="No parent groups" description="No parent groups are defined for the organization." />
+          <EmptyState title="No parent groups" description="No parent groups are defined for the organization" />
         ) : (
           <DataTable
             columns={[
@@ -552,7 +552,7 @@ function UnitFormDrawer({ mode, unit, groupOptions, onClose, onSaved, onSessionE
     <Drawer
       open
       title={isEdit ? 'Edit payroll unit' : 'New payroll unit'}
-      subtitle={isEdit ? `PATCH /api/organization/payroll-units/${unit?.id}` : 'POST /api/organization/payroll-units'}
+      subtitle={isEdit ? 'Edit payroll unit' : 'New payroll unit'}
       onClose={onClose}
       footer={(
         <>
@@ -661,7 +661,7 @@ function ParentGroupFormDrawer({ mode, group, onClose, onSaved, onSessionExpired
     <Drawer
       open
       title={isEdit ? 'Edit parent group' : 'New parent group'}
-      subtitle={isEdit ? `PATCH /api/organization/parent-groups/${group?.id}` : 'POST /api/organization/parent-groups'}
+      subtitle={isEdit ? 'Edit parent group' : 'New parent group'}
       onClose={onClose}
       footer={(
         <>

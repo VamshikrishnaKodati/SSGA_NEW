@@ -32,11 +32,11 @@ export default function SystemMonitor() {
     <>
       <PageHeader
         title="System monitor"
-        subtitle="Service availability for the SSGA application programming interface."
+        subtitle="Service availability for the payroll application"
         breadcrumbs={['Administration', 'System monitor']}
         actions={(
           <button type="button" className="btn" onClick={check} disabled={state.checking}>
-            <Icon name="refresh" size={14} /> {state.checking ? 'Checking…' : 'Check API health'}
+            <Icon name="refresh" size={14} /> {state.checking ? 'Checking…' : 'Run health check'}
           </button>
         )}
       />
@@ -46,8 +46,8 @@ export default function SystemMonitor() {
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h3>API availability</h3>
-            <p>GET /api/health (public, unauthenticated)</p>
+            <h3>Service health</h3>
+            <p>Confirms the application is responding to requests</p>
           </div>
           {state.checkedAt && (
             <span className={`chip plain ${state.status === 'healthy' ? 'approved' : 'rejected'}`}>
@@ -58,29 +58,20 @@ export default function SystemMonitor() {
         <div className="panel-body">
           {state.checkedAt ? (
             <div className="definition-list">
-              <div className="dl-row"><dt>Endpoint</dt><dd><code>/api/health</code></dd></div>
               <div className="dl-row"><dt>Checked at</dt><dd>{formatDateTime(state.checkedAt)}</dd></div>
               <div className="dl-row"><dt>Response</dt><dd>{state.body || '—'}</dd></div>
             </div>
           ) : (
-            <p className="muted">Run a health check to confirm the API is reachable.</p>
+            <p className="muted">Run a health check to confirm the application is responding.</p>
           )}
         </div>
       </section>
 
       <section className="panel section-gap">
-        <div className="panel-head">
-          <div>
-            <h3>Settings &amp; monitoring</h3>
-            <p>Configuration, integrations and operational telemetry</p>
-          </div>
-          <span className="chip warning plain">Not available</span>
-        </div>
         <div className="panel-body">
           <Unavailable
-            title="No settings or metrics endpoints are exposed"
-            description="The backend does not currently expose configuration management, scheduled-task status, metrics or integration monitoring. Only the health probe above is available."
-            missingEndpoint="GET /api/settings · GET /api/metrics · GET /api/system/jobs"
+            title="System settings are not available here"
+            description="Configuration, scheduled jobs, metrics and integration status are managed outside this console"
           />
         </div>
       </section>

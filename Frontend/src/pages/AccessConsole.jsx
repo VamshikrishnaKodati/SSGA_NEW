@@ -6,7 +6,6 @@ import {
   Alert,
   DataTable,
   DefinitionList,
-  Icon,
   LoadingState,
   PageHeader,
   Unavailable,
@@ -31,16 +30,15 @@ export default function AccessConsole({ user, ability }) {
   return (
     <>
       <PageHeader
-        title="Users & access"
-        subtitle="Effective permissions for the signed-in account plus the role and permission catalogue."
-        breadcrumbs={['Administration', 'Users & access']}
+        title="User management"
+        subtitle="Who this account is, what it can do, and the organizational scope it can reach"
+        breadcrumbs={['Administration', 'User management']}
       />
 
       <section className="panel">
         <div className="panel-head">
           <div>
             <h3>Account & effective access</h3>
-            <p>Read directly from the authenticated session</p>
           </div>
         </div>
         <div className="panel-body">
@@ -52,9 +50,9 @@ export default function AccessConsole({ user, ability }) {
                 term: 'Roles',
                 value: ability.roles.length
                   ? ability.roles.map((role) => ROLE_LABELS[role]).join(', ')
-                  : 'No role authority returned by the backend',
+                  : 'No roles assigned',
               },
-              { term: 'Granted permissions', value: `${granted.size} of ${PERMISSIONS.length}` },
+              { term: 'Permissions', value: `${granted.size} granted` },
             ]}
           />
         </div>
@@ -72,8 +70,8 @@ export default function AccessConsole({ user, ability }) {
           {tab === 'effective' && (
             <>
               <p className="muted" style={{ marginTop: 0 }}>
-                Permission codes granted to this account. The server derives these from the
-                authenticated session; none can be granted from the browser.
+              Permission codes for this account. Access follows your role and
+              cannot be changed here.
               </p>
               <div className="tag-list" style={{ marginTop: 12 }}>
                 {PERMISSIONS.map((code) => (
@@ -84,7 +82,7 @@ export default function AccessConsole({ user, ability }) {
               </div>
               {ability.isAdmin && (
                 <Alert kind="info">
-                  System Administrator holds every catalogue permission by role.
+                  System Administrator has full access by role.
                 </Alert>
               )}
             </>
@@ -106,7 +104,7 @@ export default function AccessConsole({ user, ability }) {
           {tab === 'scope' && (
             <>
               {!ability.has('division.view') ? (
-                <Alert kind="info">Organizational scope detail requires the division.view permission.</Alert>
+                <Alert kind="info">Organizational scope is not available for your role.</Alert>
               ) : divisions.loading ? (
                 <LoadingState rows={3} />
               ) : divisions.error ? (
@@ -114,8 +112,8 @@ export default function AccessConsole({ user, ability }) {
               ) : (
                 <>
                   <p className="muted" style={{ marginTop: 0 }}>
-                    Wings and divisions reachable with your current grants (from
-                    <code> /divisions/my-scope</code>). The server enforces this scope on every request.
+                    Wings and divisions available to this account. Access is limited
+                    to these units on every request.
                   </p>
                   <DataTable
                     columns={[
@@ -126,7 +124,7 @@ export default function AccessConsole({ user, ability }) {
                     rows={divisions.data || []}
                     rowKey={(row) => row.id}
                     emptyTitle="No scope assignments"
-                    emptyDescription="No division scope rows were returned for this account."
+                    emptyDescription="No division scope rows were returned for this account"
                   />
                 </>
               )}
@@ -134,23 +132,10 @@ export default function AccessConsole({ user, ability }) {
           )}
 
           {tab === 'manage' && (
-            <div className="stack">
-              <Unavailable
-                title="User, role and scope administration is not exposed by the backend"
-                description="The security schema defines users, roles, permissions and user_role_scopes, but no controller exposes endpoints to create users, assign roles, reset passwords or change organizational scope. Access changes must currently be applied in the database by an administrator."
-                missingEndpoint="GET/POST /api/users · POST /api/users/{id}/roles · POST /api/users/{id}/password-reset"
-              />
-              <div className="availability-note">
-                <Icon name="lock" size={17} />
-                <div>
-                  <strong>Security note</strong>
-                  <p>
-                    Role, user ID, wing and division identifiers supplied by the browser are never
-                    trusted as proof of authorization. This console is informational only.
-                  </p>
-                </div>
-              </div>
-            </div>
+            <Unavailable
+              title="User administration is not available here"
+              description="User, role, and scope changes are managed outside this console. This screen is read-only."
+            />
           )}
         </div>
       </section>

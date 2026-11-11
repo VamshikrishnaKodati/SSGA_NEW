@@ -32,7 +32,8 @@ foreach ($migration in @(
   'database\27_payroll_history_imports.sql',
   'database\28_active_role_scope_and_finalizer.sql',
   'database\29_payroll_batch_optimistic_version.sql',
-  'database\30_import_job_progress.sql'
+  'database\30_import_job_progress.sql',
+  'database\31_employee_master_and_components_import.sql'
 )) {
   & $psql -h 127.0.0.1 -U postgres -d $db -v ON_ERROR_STOP=1 -f $migration
   if ($LASTEXITCODE -ne 0) { throw "Migration failed: $migration" }
@@ -73,6 +74,10 @@ Order matters:
 - Migration `30_import_job_progress.sql` adds an append-only, RLS-protected
   progress-event store for backend-reported import processing counts and logs.
   Apply it before deploying the import progress UI.
+- Migration `31_employee_master_and_components_import.sql` widens the
+  confirmed sheet-type constraint for `EMPLOYEE_MASTER_AND_COMPONENTS` and
+  seeds the active salary components that type imports. Apply it before
+  committing that import type.
 - If the local/staging `org_admin` demo account exists but has no valid
   organization-wide assignment, run
   `database\repair_demo_org_admin_scope.sql` as a database administrator after

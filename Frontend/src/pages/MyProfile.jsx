@@ -57,7 +57,6 @@ export default function MyProfile({ user, ability, onSessionExpired }) {
         <div className="panel-head">
           <div>
             <h3>Account</h3>
-            <p>From the authenticated server session</p>
           </div>
         </div>
         <div className="panel-body">
@@ -69,7 +68,7 @@ export default function MyProfile({ user, ability, onSessionExpired }) {
                 term: 'Role',
                 value: ability.roles.length
                   ? ability.roles.map((role) => ROLE_LABELS[role]).join(', ')
-                  : 'No role authority returned',
+                  : 'No roles assigned',
               },
             ]}
           />
@@ -81,7 +80,6 @@ export default function MyProfile({ user, ability, onSessionExpired }) {
           <div className="panel-head">
             <div>
               <h3>My employee record</h3>
-              <p>Only records your grants permit are returned</p>
             </div>
           </div>
           <div className="panel-body">
@@ -151,7 +149,7 @@ export default function MyProfile({ user, ability, onSessionExpired }) {
                       type="button"
                       className="btn ghost sm"
                       disabled={!ability.has('statement.download')}
-                      title={ability.has('statement.download') ? 'Download PDF' : 'Requires statement.download'}
+                      title={ability.has('statement.download') ? 'Download PDF' : 'Your role cannot download statements'}
                       onClick={() => download(row)}
                     >
                       <Icon name="down" size={13} /> PDF
@@ -162,7 +160,7 @@ export default function MyProfile({ user, ability, onSessionExpired }) {
               rows={statements.data || []}
               rowKey={(row) => row.id}
               emptyTitle="No statements issued"
-              emptyDescription="Your salary statements will appear here once payroll for a period is finalized and statements are generated."
+              emptyDescription="Your salary statements will appear here once payroll for a period is finalized and statements are generated"
             />
           )}
         </section>

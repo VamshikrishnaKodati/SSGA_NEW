@@ -31,6 +31,8 @@ public class ImportJobController {
     private final ImportJobAutoMapService autoMapService;
     private final ImportJobSheetPreviewService previewService;
     private final ImportJobProgressService progressService;
+    private final ImportJobCorrectionService correctionService;
+    private final ImportJobReviewService reviewService;
 
     public ImportJobController(
             ImportJobService importJobService,
@@ -41,7 +43,9 @@ public class ImportJobController {
             ImportJobWorkflowService workflowService,
             ImportJobAutoMapService autoMapService,
             ImportJobSheetPreviewService previewService,
-            ImportJobProgressService progressService
+            ImportJobProgressService progressService,
+            ImportJobCorrectionService correctionService,
+            ImportJobReviewService reviewService
     ) {
         this.importJobService = importJobService;
         this.analysisService = analysisService;
@@ -52,6 +56,8 @@ public class ImportJobController {
         this.autoMapService = autoMapService;
         this.previewService = previewService;
         this.progressService = progressService;
+        this.correctionService = correctionService;
+        this.reviewService = reviewService;
     }
 
     @GetMapping
@@ -209,6 +215,80 @@ public class ImportJobController {
         );
     }
 
+    @GetMapping("/{jobId}/sheets/{sheetIndex}/error-rows")
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') "
+            + "or hasAuthority('salary.manage') "
+            + "or hasAuthority('payroll.prepare') "
+            + "or hasAuthority('employee.create')"
+    )
+    public ResponseEntity<ImportJobSheetPreviewResponse> errorRows(
+            @PathVariable long jobId,
+            @PathVariable int sheetIndex
+    ) throws Exception {
+        return ResponseEntity.ok(
+                previewService.errorRows(jobId, sheetIndex)
+        );
+    }
+
+    @PostMapping("/{jobId}/sheets/{sheetIndex}/corrections")
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') "
+            + "or hasAuthority('salary.manage') "
+            + "or hasAuthority('payroll.prepare') "
+            + "or hasAuthority('employee.create')"
+    )
+    public ResponseEntity<ImportJobSheetValidationResponse> correct(
+            @PathVariable long jobId,
+            @PathVariable int sheetIndex,
+            @RequestBody ImportJobCorrectionRequest request
+    ) throws Exception {
+        return ResponseEntity.ok(
+                correctionService.apply(jobId, sheetIndex, request)
+        );
+    }
+
+    @GetMapping("/{jobId}/review-summary")
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') "
+            + "or hasAuthority('salary.manage') "
+            + "or hasAuthority('payroll.prepare') "
+            + "or hasAuthority('employee.create') "
+            + "or hasAuthority('payroll.approve')"
+    )
+    public ResponseEntity<ImportJobReviewSummaryResponse> reviewSummary(
+            @PathVariable long jobId
+    ) {
+        return ResponseEntity.ok(reviewService.summary(jobId));
+    }
+
+    @GetMapping("/{jobId}/events")
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') "
+            + "or hasAuthority('salary.manage') "
+            + "or hasAuthority('payroll.prepare') "
+            + "or hasAuthority('employee.create') "
+            + "or hasAuthority('payroll.approve') "
+            + "or hasAuthority('payroll.finalize')"
+    )
+    public ResponseEntity<java.util.List<ImportJobWorkflowEventResponse>> events(
+            @PathVariable long jobId
+    ) {
+        return ResponseEntity.ok(workflowService.events(jobId));
+    }
+
+    @PostMapping("/{jobId}/import-draft")
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') "
+            + "or hasAuthority('payroll.prepare') "
+            + "or hasAuthority('salary.manage')"
+    )
+    public ResponseEntity<ImportJobWorkflowResponse> importDraft(
+            @PathVariable long jobId
+    ) {
+        return ResponseEntity.ok(workflowService.importDraft(jobId));
+    }
+
     @PostMapping("/{jobId}/submit")
     @PreAuthorize(
             "hasRole('SYSTEM_ADMIN') "
@@ -230,8 +310,17 @@ public class ImportJobController {
     public ResponseEntity<ImportJobWorkflowResponse> approve(
             @PathVariable long jobId,
             @RequestBody(required = false) ImportJobDecisionRequest request
-    ) {
-        return ResponseEntity.ok(workflowService.approve(jobId, request));
+    ) throws IOException {
+        try {
+            return ResponseEntity.ok(workflowService.approve(jobId, request));
+        } catch (IOException | RuntimeException ex) {
+            String message = ex instanceof ResponseStatusException statusException
+                    && statusException.getReason() != null
+                    ? statusException.getReason()
+                    : "The import failed and its database transaction was rolled back.";
+            progressService.markFailed(jobId, message);
+            throw ex;
+        }
     }
 
     @PostMapping("/{jobId}/reject")

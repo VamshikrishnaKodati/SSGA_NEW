@@ -81,17 +81,26 @@ results before proceeding through the monthly payroll workflow.
 - The legacy `/salary-values/preview` endpoint parses a file for preview; it
   does **not** load or persist salary values. Use the import-job workflow for
   the reviewed import process.
-- `EMPLOYEE_MASTER` remains preview-only. `PAYROLL_HISTORY` commits only in
-  the component-detail layout to a separate historical-record table; it never
-  creates operational payroll batches, transactions, approvals, or statements.
-  Keep history imports in a separate job from other commit types.
+- `EMPLOYEE_MASTER` remains preview-only.
+  `EMPLOYEE_MASTER_AND_COMPONENTS` commits: it creates employees that do not
+  exist yet and inserts their component values. Existing employees are matched
+  by employee code or HRMS ID and their master fields are never updated; a
+  component value that already exists for the same effective date is reported
+  as an error and left unchanged. New employees require employee-creation
+  authority and a mapped division.
+  `PAYROLL_HISTORY` commits only in the component-detail layout to a separate
+  historical-record table. None of these commit types create operational
+  payroll batches, transactions, approvals, or statements. Keep history
+  imports in a separate job from other commit types.
 - A saved column mapping speeds up repeat uploads, but the operator still
   needs to review the mapping and validation results for each file.
 
 ### Approved requirements for Employee Master
 
 The following Employee Master behavior is still a requirement, not a claim
-that the current application implements it.
+that the current application implements it. The combined
+`EMPLOYEE_MASTER_AND_COMPONENTS` type implements the creation and component
+rules below; plain `EMPLOYEE_MASTER` remains preview-only.
 
 - **Employee Master:** Require HRMS ID and employee name; validate optional
   fields against the actual schema, resolve division and wing unambiguously,

@@ -48,7 +48,7 @@ public class SalaryStatementService {
 
     private static final String SELECT_STATEMENTS = """
             SELECT s.id, s.statement_no, s.transaction_id, s.employee_id,
-                   t.employee_code_snapshot, t.name_snapshot,
+                   t.hrms_id_snapshot, t.name_snapshot,
                    s.period_id, p.period_year, p.period_month,
                    s.wing_id, s.division_id, s.version, s.status,
                    s.template_version, s.payload::text AS payload,
@@ -323,7 +323,6 @@ public class SalaryStatementService {
 
         Map<String, Object> employee = new LinkedHashMap<>();
         employee.put("id", transaction.employeeId());
-        employee.put("code", transaction.employeeCode());
         employee.put("hrms_id", transaction.hrmsId());
         employee.put("name", transaction.name());
 
@@ -443,17 +442,15 @@ public class SalaryStatementService {
     private List<Transaction> loadTransactions(long batchId) {
         List<Transaction> transactions = jdbcTemplate.query(
                 """
-                SELECT id, employee_id, employee_code_snapshot,
-                       hrms_id_snapshot, name_snapshot, gross_salary,
-                       total_deductions, net_salary
+                SELECT id, employee_id, hrms_id_snapshot, name_snapshot,
+                       gross_salary, total_deductions, net_salary
                 FROM public.salary_transactions
                 WHERE payroll_batch_id = ?
-                ORDER BY employee_code_snapshot
+                ORDER BY hrms_id_snapshot
                 """,
                 (rs, rowNum) -> new Transaction(
                         rs.getLong("id"),
                         rs.getLong("employee_id"),
-                        rs.getString("employee_code_snapshot"),
                         rs.getString("hrms_id_snapshot"),
                         rs.getString("name_snapshot"),
                         rs.getBigDecimal("gross_salary"),
@@ -474,16 +471,14 @@ public class SalaryStatementService {
     private Transaction requireTransaction(long transactionId) {
         List<Transaction> rows = jdbcTemplate.query(
                 """
-                SELECT id, employee_id, employee_code_snapshot,
-                       hrms_id_snapshot, name_snapshot, gross_salary,
-                       total_deductions, net_salary
+                SELECT id, employee_id, hrms_id_snapshot, name_snapshot,
+                       gross_salary, total_deductions, net_salary
                 FROM public.salary_transactions
                 WHERE id = ?
                 """,
                 (rs, rowNum) -> new Transaction(
                         rs.getLong("id"),
                         rs.getLong("employee_id"),
-                        rs.getString("employee_code_snapshot"),
                         rs.getString("hrms_id_snapshot"),
                         rs.getString("name_snapshot"),
                         rs.getBigDecimal("gross_salary"),
@@ -669,7 +664,7 @@ public class SalaryStatementService {
                 rs.getString("statement_no"),
                 rs.getLong("transaction_id"),
                 rs.getLong("employee_id"),
-                rs.getString("employee_code_snapshot"),
+                rs.getString("hrms_id_snapshot"),
                 rs.getString("name_snapshot"),
                 rs.getLong("period_id"),
                 periodLabel(rs.getInt("period_year"), rs.getInt("period_month")),
@@ -694,7 +689,7 @@ public class SalaryStatementService {
                 row.statementNo(),
                 row.transactionId(),
                 row.employeeId(),
-                row.employeeCode(),
+                row.hrmsId(),
                 row.employeeName(),
                 row.periodId(),
                 row.periodLabel(),
@@ -715,7 +710,7 @@ public class SalaryStatementService {
             Batch batch, Transaction transaction, int version
     ) {
         return "STMT-" + batch.periodLabel() + "-"
-                + transaction.employeeCode() + "-v" + version;
+                + transaction.hrmsId() + "-v" + version;
     }
 
     private static String periodLabel(int year, int month) {
@@ -765,7 +760,6 @@ public class SalaryStatementService {
     private record Transaction(
             long id,
             long employeeId,
-            String employeeCode,
             String hrmsId,
             String name,
             java.math.BigDecimal gross,
@@ -791,7 +785,7 @@ public class SalaryStatementService {
             String statementNo,
             long transactionId,
             long employeeId,
-            String employeeCode,
+            String hrmsId,
             String employeeName,
             long periodId,
             String periodLabel,

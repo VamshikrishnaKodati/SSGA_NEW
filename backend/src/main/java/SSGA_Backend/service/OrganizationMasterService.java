@@ -298,7 +298,6 @@ public class OrganizationMasterService {
         List<PayrollUnitDetailResponse.EmployeeRef> employees = jdbcTemplate.query(
                 """
                 SELECT e.id,
-                       e.employee_code,
                        e.hrms_id,
                        e.name,
                        des.name AS designation_name,
@@ -310,7 +309,6 @@ public class OrganizationMasterService {
                 """,
                 (rs, rowNum) -> new PayrollUnitDetailResponse.EmployeeRef(
                         rs.getLong("id"),
-                        rs.getString("employee_code"),
                         rs.getString("hrms_id"),
                         rs.getString("name"),
                         rs.getString("designation_name"),

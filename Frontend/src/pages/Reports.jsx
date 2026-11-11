@@ -45,7 +45,7 @@ export default function Reports({ ability, onSessionExpired }) {
     <>
       <PageHeader
         title="Reports"
-        subtitle="Payroll and salary reporting across your organizational scope."
+        subtitle="Payroll and salary reporting across your organizational scope"
         breadcrumbs={['Insights', 'Reports']}
       />
 
@@ -69,7 +69,7 @@ export default function Reports({ ability, onSessionExpired }) {
               disabled={!canFilterPeriod}
             />
             {!canFilterPeriod && (
-              <span className="inline-meta"><Icon name="lock" size={12} /> Period filter requires payroll.view</span>
+              <span className="inline-meta"><Icon name="lock" size={12} /> Period filter is not available for your role</span>
             )}
             {tab === 'organization' && (
               <SelectField label="Batch status" value={statusFilter} onChange={setStatusFilter} options={STATUS_OPTIONS} placeholder="All statuses" />
@@ -146,7 +146,7 @@ function DivisionReport({ periodFilter, canExport, onError }) {
     <>
       <div className="panel-head" style={{ border: 'none', paddingTop: 0 }}>
         <div>
-          <h3>Division-wise payroll</h3>
+          <h3>Division totals</h3>
           <p>Finalized payroll totals per division in your scope</p>
         </div>
         {canExport && (
@@ -169,7 +169,7 @@ function DivisionReport({ periodFilter, canExport, onError }) {
         rowKey={(row) => row.divisionId}
         footer={summary.data?.length ? <TotalsFooter rows={summary.data} /> : null}
         emptyTitle="No finalized payroll"
-        emptyDescription="No finalized payroll is available for the selected scope and period."
+        emptyDescription="No finalized payroll is available for the selected scope and period"
       />
     </>
   )
@@ -217,8 +217,8 @@ function WingReport({ periodFilter, canExport, onError }) {
     <>
       <div className="panel-head" style={{ border: 'none', paddingTop: 0 }}>
         <div>
-          <h3>Wing-wise payroll</h3>
-          <p>Division figures aggregated to their wing (computed in the browser)</p>
+          <h3>Wing totals</h3>
+          <p>Division figures aggregated by wing</p>
         </div>
         {canExport && (
           <button type="button" className="btn ghost sm" onClick={exportCsv} disabled={exporting}>
@@ -239,7 +239,7 @@ function WingReport({ periodFilter, canExport, onError }) {
         rows={wings}
         rowKey={(row) => row.wing}
         emptyTitle="No wing totals"
-        emptyDescription="No finalized payroll is available to aggregate by wing."
+        emptyDescription="No finalized payroll is available to aggregate by wing"
       />
     </>
   )
@@ -277,7 +277,7 @@ function OrganizationReport({ periodFilter, statusFilter, canExport, onError }) 
     <>
       <div className="panel-head" style={{ border: 'none', paddingTop: 0 }}>
         <div>
-          <h3>Organization-wide payroll summary</h3>
+          <h3>Organization totals</h3>
           <p>{data?.periodLabel ? `Period ${data.periodLabel}` : 'All periods'}{data?.statusFilter ? ` · status ${data.statusFilter}` : ''}</p>
         </div>
         {canExport && (
@@ -320,7 +320,7 @@ function OrganizationReport({ periodFilter, statusFilter, canExport, onError }) 
         rows={divisions}
         rowKey={(row) => row.divisionId}
         emptyTitle="No summary available"
-        emptyDescription="No payroll matches the selected period and status in your scope."
+        emptyDescription="No payroll matches the selected period and status in your scope"
       />
     </>
   )
@@ -360,7 +360,7 @@ function EmployeeReport({ ability, onSessionExpired, onError }) {
     <>
       <div className="panel-head" style={{ border: 'none', paddingTop: 0 }}>
         <div>
-          <h3>Employee-wise salary</h3>
+          <h3>Employee salary history</h3>
           <p>Per-period gross, deductions and net for a single employee</p>
         </div>
       </div>
@@ -379,7 +379,7 @@ function EmployeeReport({ ability, onSessionExpired, onError }) {
             <input type="number" min="1" value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} placeholder="Employee id" />
           )}
         </label>
-        {!canListEmployees && <span className="inline-meta">Employee lookup requires employee.view; enter an id directly.</span>}
+          {!canListEmployees && <span className="inline-meta">Employee lookup is not available for your role; enter an ID instead.</span>}
         <button type="submit" className="btn" disabled={loading || !employeeId}>
           {loading ? 'Loading…' : 'View report'}
         </button>
@@ -404,7 +404,7 @@ function EmployeeReport({ ability, onSessionExpired, onError }) {
             rows={history.rows || []}
             rowKey={(row) => `${row.recordSource}-${row.recordId}`}
             emptyTitle="No salary history"
-            emptyDescription="No payroll history is available for this employee."
+            emptyDescription="No payroll history is available for this employee"
           />
         </div>
       )}
@@ -415,9 +415,8 @@ function EmployeeReport({ ability, onSessionExpired, onError }) {
 function SalaryHistoryReport() {
   return (
     <Unavailable
-      title="Employee salary revision history is not exposed"
-      description="Pay scales, grade revisions and salary-component changes over time are stored server-side but no endpoint returns an employee's revision timeline. Per-period salary figures remain available under the Employee-wise report."
-      missingEndpoint="GET /api/reports/salary-revisions?employeeId="
+      title="Employee salary revision history is not available"
+      description="Revision history is not available in this console. Per-period salary figures remain available under the Employee-wise report."
     />
   )
 }

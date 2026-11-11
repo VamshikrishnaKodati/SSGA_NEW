@@ -29,17 +29,17 @@ class ColumnMappingCatalogTest {
         List<ColumnMappingCatalog.SheetField> fields =
                 ColumnMappingCatalog.suggestFields(
                         "SALARY_ENTITLEMENTS",
-                        List.of("Emp Code", "Amount"),
-                        Map.of("Emp Code", List.of("E123"), "Amount", List.of("1000", "2500"))
+                        List.of("HRMS ID", "Amount"),
+                        Map.of("HRMS ID", List.of("E123"), "Amount", List.of("1000", "2500"))
                 );
 
         // Amount is not an identifier, so an exact match with numeric samples is HIGH.
         assertEquals(ColumnMappingCatalog.HIGH, field(fields, "amount").confidence());
         assertEquals("Amount", field(fields, "amount").sourceHeader());
 
-        // Employee code is an identifier, so it is capped at REVIEW.
-        assertEquals(ColumnMappingCatalog.REVIEW, field(fields, "employeeCode").confidence());
-        assertEquals("Emp Code", field(fields, "employeeCode").sourceHeader());
+        // HRMS ID is an identifier, so it is capped at REVIEW.
+        assertEquals(ColumnMappingCatalog.REVIEW, field(fields, "hrmsId").confidence());
+        assertEquals("HRMS ID", field(fields, "hrmsId").sourceHeader());
     }
 
     @Test
@@ -108,6 +108,22 @@ class ColumnMappingCatalogTest {
     }
 
     @Test
+    void combinedSheetDoesNotMapComponentColumnsAsIdentityNumbers() {
+        // GPF/NPS are salary components in a combined sheet; only explicit
+        // "number" headers belong to the employee identity fields.
+        List<ColumnMappingCatalog.SheetField> fields =
+                ColumnMappingCatalog.suggestFields(
+                        "EMPLOYEE_MASTER_AND_COMPONENTS",
+                        List.of("PF_NUMBER", "NPS_NUMBER", "NPS", "GPF"),
+                        Map.of()
+                );
+
+        assertEquals("PF_NUMBER", field(fields, "pf").sourceHeader());
+        assertEquals("NPS_NUMBER", field(fields, "nps").sourceHeader());
+        assertNull(field(fields, "gpf").sourceHeader());
+    }
+
+    @Test
     void payrollHistoryMapsSourceTransactionStatus() {
         List<ColumnMappingCatalog.SheetField> fields =
                 ColumnMappingCatalog.suggestFields(
@@ -124,5 +140,16 @@ class ColumnMappingCatalogTest {
                 "Status",
                 field(fields, "transactionStatus").sourceHeader()
         );
+    }
+
+    @Test
+    void componentKeyStripsCommonSuffixesAndAliases() {
+        assertEquals("BASIC", ColumnMappingCatalog.componentKey("BASIC_PAY"));
+        assertEquals("BASIC", ColumnMappingCatalog.componentKey("basic pay"));
+        assertEquals("DA", ColumnMappingCatalog.componentKey("DA_PAY"));
+        assertEquals("HRA", ColumnMappingCatalog.componentKey("HRA"));
+        assertEquals("HRA", ColumnMappingCatalog.componentKey("House Rent Allowance"));
+        assertEquals("OT", ColumnMappingCatalog.componentKey("OVERTIME"));
+        assertEquals("", ColumnMappingCatalog.componentKey(null));
     }
 }

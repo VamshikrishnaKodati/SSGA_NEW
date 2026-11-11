@@ -12,6 +12,7 @@ public record ImportJobSheetValidationResponse(
         int validRows,
         int errorRows,
         int warningRows,
+        int tempIdRows,
         List<RowIssue> issues,
         String message
 ) {

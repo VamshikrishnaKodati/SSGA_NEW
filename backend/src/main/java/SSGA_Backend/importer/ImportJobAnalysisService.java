@@ -96,11 +96,13 @@ public class ImportJobAnalysisService {
 
         List<Map<String, Object>> jobs = jdbcTemplate.queryForList(
                 """
-                SELECT id, file_key, file_name, uploaded_by
+                SELECT id, file_key, file_name, uploaded_by, status
                 FROM public.import_jobs
                 WHERE id = ?
+                  AND uploaded_by = ?
                 """,
-                jobId
+                jobId,
+                user.getUserId()
         );
 
         if (jobs.isEmpty()) {
@@ -155,7 +157,7 @@ public class ImportJobAnalysisService {
         return new ImportJobAnalysisResponse(
                 jobId,
                 ((Number) jobs.get(0).get("uploaded_by")).longValue(),
-                "UPLOADED",
+                (String) jobs.get(0).get("status"),
                 "MULTI_SHEET_EXCEL",
                 reports,
                 "Workbook analysis completed. Review the suggested "
@@ -494,7 +496,7 @@ public class ImportJobAnalysisService {
         return count;
     }
 
-    private String suggestType(
+    String suggestType(
             String sheetName,
             List<String> rawHeaders
     ) {
@@ -518,13 +520,17 @@ public class ImportJobAnalysisService {
                 || name.contains("ROLE_TEST_MATRIX")
                 || name.contains("DB_MAPPING")
                 || name.contains("PAYROLL_EXPECTED")
-                || name.contains("EXPECTED_RESULTS")) {
+                || name.contains("EXPECTED_RESULTS")
+                || name.contains("NOTES")
+                || name.contains("INSTRUCTION")
+                || name.contains("GUIDANCE")
+                || name.contains("GUIDELINE")) {
 
             return "REFERENCE_ONLY";
         }
 
         if (name.contains("SALARY_COMPONENTS")) {
-            return "COMPONENT_CATALOG_REFERENCE";
+            return "REFERENCE_ONLY";
         }
 
         boolean employeeIdentity = hasAny(
@@ -572,6 +578,19 @@ public class ImportJobAnalysisService {
                 "MONTH_YEAR"
         );
 
+        // A sheet whose headers are purely instructional (no payroll identity
+        // or amount columns) is reference material, not payroll data.
+        boolean instructionHeaders = headers.stream()
+                .anyMatch(h ->
+                        h.contains("INSTRUCTION")
+                        || h.contains("GUIDANCE")
+                        || h.contains("HOW_TO")
+                        || h.contains("POLICY")
+                        || h.contains("PROCEDURE")
+                        || h.contains("OVERVIEW")
+                        || h.contains("LEGEND")
+                        || h.contains("KEY_"));
+
         boolean gross = hasAny(
                 headers,
                 "GROSS",
@@ -584,7 +603,14 @@ public class ImportJobAnalysisService {
                 "NET_SALARY"
         );
 
-        boolean hasWideComponentColumns = headers.stream()
+        boolean payrollIdentityOrAmount = employeeIdentity || employeeName
+                || amount || componentCode || gross || net || period;
+
+        if (instructionHeaders && !payrollIdentityOrAmount) {
+            return "REFERENCE_ONLY";
+        }
+
+        boolean wideComponentSignal = headers.stream()
                 .filter(h ->
                         h.endsWith("_PAY")
                         || h.startsWith("DA_")
@@ -596,15 +622,15 @@ public class ImportJobAnalysisService {
                         || h.equals("PROF_TAX")
                         || h.equals("INCOME_TAX")
                 )
-                .count() >= 5;
+                .count() >= 2;
 
         if (name.contains("SALARY_VALUES_WIDE")
                 || (employeeIdentity
                     && employeeName
                     && division
-                    && hasWideComponentColumns)) {
+                    && wideComponentSignal)) {
 
-            return "SALARY_VALUES_WIDE";
+            return "EMPLOYEE_MASTER_AND_COMPONENTS";
         }
 
         if (name.contains("SALARY_VALUES_IMPORT")
@@ -613,14 +639,14 @@ public class ImportJobAnalysisService {
                     && componentCode
                     && amount)) {
 
-            return "SALARY_VALUES_LONG";
+            return "SALARY_ENTITLEMENTS";
         }
 
         if (name.contains("EMPLOYEE_MASTER")
                 || (employeeIdentity
                     && employeeName
                     && division
-                    && !hasWideComponentColumns
+                    && !wideComponentSignal
                     && !componentCode
                     && !period)) {
 
@@ -628,14 +654,14 @@ public class ImportJobAnalysisService {
         }
 
         if (period && (gross || net || amount)) {
-            return "PAYROLL_HISTORY_CANDIDATE";
+            return "PAYROLL_HISTORY";
         }
 
         if (employeeIdentity
-                && hasWideComponentColumns
+                && wideComponentSignal
                 && !period) {
 
-            return "SALARY_ENTITLEMENTS_CANDIDATE";
+            return "SALARY_ENTITLEMENTS";
         }
 
         return "UNKNOWN";

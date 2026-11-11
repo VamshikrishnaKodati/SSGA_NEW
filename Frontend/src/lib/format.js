@@ -112,9 +112,11 @@ export function humanizeStatus(status) {
   if (!status) return EM_DASH
 
   return String(status)
+    .replace(/[._]+/g, ' ')
     .toLowerCase()
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .trim()
+    .split(/\s+/)
+    .map((part, index) => (index === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part))
     .join(' ')
 }
 

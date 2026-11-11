@@ -73,7 +73,11 @@ test('validation gating reports missing mappings and accepts complete supported 
   }
   assert.equal(canValidateSheet(base), true)
   assert.equal(canValidateSheet({ ...base, options: { layout: 'WIDE' } }), false)
-  assert.equal(validationBlocker({ ...base, type: 'EMPLOYEE_MASTER' }), 'The selected sheet type is read-only and cannot be validated for import.')
+  assert.equal(validationBlocker({ ...base, type: 'EMPLOYEE_MASTER' }), 'Map Employee name.')
+  assert.equal(canValidateSheet({
+    type: 'EMPLOYEE_MASTER',
+    columns: { employeeCode: 'Employee code', employeeName: 'Employee name', division: 'Division' },
+  }), true)
 
   const revision = {
     type: 'SALARY_REVISIONS',
@@ -84,10 +88,14 @@ test('validation gating reports missing mappings and accepts complete supported 
   const wideCombined = {
     type: 'EMPLOYEE_MASTER_AND_COMPONENTS',
     options: { layout: 'WIDE' },
-    columns: { hrmsId: 'HRMS ID', employeeName: 'Employee name', effectiveFrom: 'Effective from' },
+    columns: { hrmsId: 'HRMS ID', employeeName: 'Employee name', division: 'Division', effectiveFrom: 'Effective from' },
     components: [{ code: 'BASIC_PAY', header: 'Basic pay' }],
   }
   assert.equal(canValidateSheet(wideCombined), true)
+  assert.equal(validationBlocker({
+    ...wideCombined,
+    columns: { hrmsId: 'HRMS ID', employeeName: 'Employee name' },
+  }), 'Map Division or Division ID.')
   assert.equal(canValidateSheet({
     ...wideCombined,
     components: [],
@@ -105,11 +113,14 @@ test('stepStates marks upload active before a job exists', () => {
   assert.equal(states.analyse, '')
 })
 
-test('applyAutoMap fills columns and merges component suggestions', () => {
+test('applyAutoMap fills columns, merges component suggestions, and applies suggested type when unset', () => {
   const draft = {
+    type: '',
     columns: {},
     components: [{ code: 'BASIC', header: '' }],
     options: {},
+    mappingResult: { saved: true },
+    validation: { validRows: 1 },
   }
   const autoMap = {
     importType: 'SALARY_ENTITLEMENTS',
@@ -123,9 +134,29 @@ test('applyAutoMap fills columns and merges component suggestions', () => {
 
   const result = applyAutoMap(draft, autoMap)
 
+  assert.equal(result.type, 'SALARY_ENTITLEMENTS')
   assert.deepEqual(result.columns, { employeeCode: 'Emp Code' })
   assert.deepEqual(result.components, [{ code: 'BASIC', header: 'Basic Pay' }])
+  assert.equal(result.mappingResult, null)
+  assert.equal(result.validation, null)
   assert.equal(result.autoMapResult.structureSignature, 'a'.repeat(64))
+})
+
+test('applyAutoMap never maps one source header to both a field and a component', () => {
+  const draft = { columns: {}, components: [], options: {} }
+  const autoMap = {
+    importType: 'EMPLOYEE_MASTER_AND_COMPONENTS',
+    fields: [
+      { field: 'hrmsId', sourceHeader: 'HRMS_ID', confidence: 'REVIEW' },
+      { field: 'gpf', sourceHeader: 'GPF', confidence: 'REVIEW' },
+    ],
+    components: [{ componentCode: 'GPF', sourceHeader: 'GPF' }],
+  }
+
+  const result = applyAutoMap(draft, autoMap)
+
+  assert.deepEqual(result.columns, { hrmsId: 'HRMS_ID' })
+  assert.deepEqual(result.components, [{ code: 'GPF', header: 'GPF' }])
 })
 
 test('profileFromDraft drops blank components and round-trips through applyProfile', () => {

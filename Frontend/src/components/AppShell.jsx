@@ -161,7 +161,6 @@ export default function AppShell({ user, onSignOut, onSessionExpired, onRoleChan
 
         <header className="shell-topbar">
           <div className="shell-topbar-context">
-            <span className="shell-topbar-eyebrow">SSGA Workspace</span>
             <strong>{activeItem?.label || 'Dashboard'}</strong>
           </div>
 
@@ -216,7 +215,7 @@ export default function AppShell({ user, onSignOut, onSessionExpired, onRoleChan
       <ConfirmDialog
         open={confirmSignOut}
         title="Sign out of SSGA?"
-        description="Your session is managed by the application server. Signing out clears this browser session."
+        description="Signing out ends this browser session"
         confirmLabel="Sign out"
         onCancel={() => setConfirmSignOut(false)}
         onConfirm={() => {

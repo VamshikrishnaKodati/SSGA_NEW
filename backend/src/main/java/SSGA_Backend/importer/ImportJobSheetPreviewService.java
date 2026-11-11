@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -84,10 +85,32 @@ public class ImportJobSheetPreviewService {
                 jsonMapper, (String) record.get("mapping_json"));
 
         if (mapping.columns().isEmpty() && mapping.components().isEmpty()) {
+            List<ImportJobSheetPreviewResponse.PreviewColumn> rawColumns =
+                    new ArrayList<>();
+
+            for (String header : headers) {
+                if (header == null || header.isBlank()) {
+                    continue;
+                }
+                rawColumns.add(
+                        new ImportJobSheetPreviewResponse.PreviewColumn(
+                                header, header, header, false));
+            }
+
+            List<ImportJobSheetPreviewResponse.PreviewRow> rawRows = readRows(
+                    (String) record.get("file_key"),
+                    sheetIndex,
+                    headerRowNumber(record),
+                    headers,
+                    rawColumns,
+                    PREVIEW_ROWS,
+                    null
+            );
+
             return new ImportJobSheetPreviewResponse(
-                    jobId, sheetIndex, sheetName, List.of(), List.of(),
+                    jobId, sheetIndex, sheetName, rawColumns, rawRows,
                     0, 0, 0, false, List.of(),
-                    "Save a column mapping before previewing rows."
+                    "Showing raw sample rows. Save a mapping for field-level preview."
             );
         }
 
@@ -105,7 +128,10 @@ public class ImportJobSheetPreviewService {
 
         for (Map.Entry<String, String> entry : mapping.components().entrySet()) {
             columns.add(new ImportJobSheetPreviewResponse.PreviewColumn(
-                    entry.getKey(), entry.getKey(), entry.getValue(), false));
+                    "component:" + entry.getKey(),
+                    entry.getKey(),
+                    entry.getValue(),
+                    false));
         }
 
         List<ImportJobSheetPreviewResponse.PreviewRow> rows = readRows(
@@ -113,7 +139,9 @@ public class ImportJobSheetPreviewService {
                 sheetIndex,
                 headerRowNumber(record),
                 headers,
-                columns
+                columns,
+                PREVIEW_ROWS,
+                null
         );
 
         List<ImportJobSheetPreviewResponse.Issue> issues = loadIssues(sheetId);
@@ -130,6 +158,75 @@ public class ImportJobSheetPreviewService {
         return new ImportJobSheetPreviewResponse(
                 jobId, sheetIndex, sheetName, columns, rows,
                 validRows, errorRows, warningRows, validated, issues, message
+        );
+    }
+
+    @Transactional(transactionManager = "dataSourceTransactionManager")
+    public ImportJobSheetPreviewResponse errorRows(long jobId, int sheetIndex)
+            throws IOException {
+
+        Map<String, Object> record = requireSheet(jobId, sheetIndex);
+
+        long sheetId = ((Number) record.get("sheet_id")).longValue();
+        String sheetName = (String) record.get("sheet_name");
+        String importType = (String) record.get("confirmed_type");
+
+        List<String> headers = Arrays.asList(
+                jsonMapper.readValue((String) record.get("headers_json"), String[].class));
+
+        SheetMapping mapping = SheetMapping.parse(
+                jsonMapper, (String) record.get("mapping_json"));
+
+        List<ImportJobSheetPreviewResponse.PreviewColumn> columns =
+                new ArrayList<>();
+
+        for (Map.Entry<String, String> entry : mapping.columns().entrySet()) {
+            columns.add(new ImportJobSheetPreviewResponse.PreviewColumn(
+                    entry.getKey(),
+                    labelFor(importType, entry.getKey()),
+                    entry.getValue(),
+                    MASKED_FIELDS.contains(entry.getKey())
+            ));
+        }
+
+        for (Map.Entry<String, String> entry : mapping.components().entrySet()) {
+            columns.add(new ImportJobSheetPreviewResponse.PreviewColumn(
+                    "component:" + entry.getKey(),
+                    entry.getKey(),
+                    entry.getValue(),
+                    false));
+        }
+
+        List<ImportJobSheetPreviewResponse.Issue> issues = loadIssues(sheetId)
+                .stream()
+                .filter(issue -> "ERROR".equals(issue.severity()))
+                .toList();
+
+        Set<Integer> errorRowNumbers = new HashSet<>();
+        for (ImportJobSheetPreviewResponse.Issue issue : issues) {
+            errorRowNumbers.add(issue.sourceRowNumber());
+        }
+
+        List<ImportJobSheetPreviewResponse.PreviewRow> rows = readRows(
+                (String) record.get("file_key"),
+                sheetIndex,
+                headerRowNumber(record),
+                headers,
+                columns,
+                Integer.MAX_VALUE,
+                errorRowNumbers
+        );
+
+        return new ImportJobSheetPreviewResponse(
+                jobId, sheetIndex, sheetName, columns, rows,
+                intValue(record.get("valid_rows")),
+                intValue(record.get("error_rows")),
+                intValue(record.get("warning_rows")),
+                record.get("validated_at") != null,
+                issues,
+                rows.isEmpty()
+                        ? "No error rows to correct on this worksheet."
+                        : "Correct the values below, then apply each row."
         );
     }
 
@@ -189,7 +286,7 @@ public class ImportJobSheetPreviewService {
                     s.error_rows,
                     s.warning_rows,
                     s.validated_at,
-                    j.file_key
+                    COALESCE(j.corrected_file_key, j.file_key) AS file_key
                 FROM public.import_job_sheets s
                 JOIN public.import_jobs j ON j.id = s.import_job_id
                 WHERE s.import_job_id = ?
@@ -216,7 +313,9 @@ public class ImportJobSheetPreviewService {
             int sheetIndex,
             Integer headerRowNumber,
             List<String> headers,
-            List<ImportJobSheetPreviewResponse.PreviewColumn> columns
+            List<ImportJobSheetPreviewResponse.PreviewColumn> columns,
+            int limit,
+            Set<Integer> onlyRows
     ) throws IOException {
 
         List<ImportJobSheetPreviewResponse.PreviewRow> rows = new ArrayList<>();
@@ -255,12 +354,16 @@ public class ImportJobSheetPreviewService {
             int headerIndex = headerRowNumber - 1;
 
             for (int index = headerIndex + 1;
-                 index <= sheet.getLastRowNum() && rows.size() < PREVIEW_ROWS;
+                 index <= sheet.getLastRowNum() && rows.size() < limit;
                  index++) {
 
                 Row row = sheet.getRow(index);
 
                 if (row == null || ImportCells.isBlankRow(row)) {
+                    continue;
+                }
+
+                if (onlyRows != null && !onlyRows.contains(index + 1)) {
                     continue;
                 }
 

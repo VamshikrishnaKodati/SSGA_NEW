@@ -16,7 +16,6 @@ import java.util.List;
  */
 public record EmployeeResponse(
         long id,
-        String employeeCode,
         String hrmsId,
         String name,
         long divisionId,

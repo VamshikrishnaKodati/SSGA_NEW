@@ -9,6 +9,11 @@ export const ROLES = {
   REPORT_USER: 'ROLE_REPORT_USER',
   EMPLOYEE_SELF: 'ROLE_EMPLOYEE_SELF',
   AUDITOR: 'ROLE_AUDITOR',
+  HR_ADMIN: 'ROLE_HR_ADMIN',
+  DATA_IMPORT_OPERATOR: 'ROLE_DATA_IMPORT_OPERATOR',
+  IMPORT_CHECKER: 'ROLE_IMPORT_CHECKER',
+  IMPORT_COMMITTER: 'ROLE_IMPORT_COMMITTER',
+  PAYROLL_CHECKER: 'ROLE_PAYROLL_CHECKER',
 }
 
 export const ROLE_LABELS = {
@@ -22,6 +27,29 @@ export const ROLE_LABELS = {
   [ROLES.REPORT_USER]: 'Report User',
   [ROLES.EMPLOYEE_SELF]: 'Employee (self service)',
   [ROLES.AUDITOR]: 'Auditor',
+  [ROLES.HR_ADMIN]: 'HR Administrator',
+  [ROLES.DATA_IMPORT_OPERATOR]: 'Data Import Operator',
+  [ROLES.IMPORT_CHECKER]: 'Import Checker',
+  [ROLES.IMPORT_COMMITTER]: 'Import Committer',
+  [ROLES.PAYROLL_CHECKER]: 'Payroll Checker',
+}
+
+const ROLE_ALIASES = {
+  SYS_ADMIN: ROLES.SYSTEM_ADMIN,
+  DIV_ADMIN: ROLES.DIVISION_ADMIN,
+  EMPLOYEE: ROLES.EMPLOYEE_SELF,
+  GM: ROLES.APPROVING_AUTHORITY,
+  SO_FINANCE: ROLES.PAYROLL_OPERATOR,
+  IT_ADMIN: ROLES.SYSTEM_ADMIN,
+  OFF_PAYROLL: ROLES.PAYROLL_OPERATOR,
+  HR_ADMINISTRATOR: ROLES.HR_ADMIN,
+  IMPORT_OPERATOR: ROLES.DATA_IMPORT_OPERATOR,
+}
+
+export function canonicalRole(roleCode) {
+  if (!roleCode) return null
+  const code = String(roleCode).replace(/^ROLE_/, '')
+  return ROLE_ALIASES[code] || `ROLE_${code}`
 }
 
 const ROLE_PRIORITY = [
@@ -29,6 +57,11 @@ const ROLE_PRIORITY = [
   ROLES.ORG_ADMIN,
   ROLES.WING_ADMIN,
   ROLES.DIVISION_ADMIN,
+  ROLES.HR_ADMIN,
+  ROLES.DATA_IMPORT_OPERATOR,
+  ROLES.IMPORT_CHECKER,
+  ROLES.IMPORT_COMMITTER,
+  ROLES.PAYROLL_CHECKER,
   ROLES.APPROVING_AUTHORITY,
   ROLES.PAYROLL_FINALIZER,
   ROLES.PAYROLL_OPERATOR,
@@ -70,11 +103,18 @@ export const PERMISSIONS = [
   'user.manage',
   'scope.manage',
   'audit.view',
+  'import.commit',
 ]
 
 export function createAbility(user) {
   const authorities = Array.isArray(user?.authorities) ? user.authorities : []
-  const set = new Set(authorities)
+  const set = new Set(
+    authorities.map((authority) => (
+      authority.startsWith('ROLE_') || ROLE_ALIASES[authority]
+        ? canonicalRole(authority)
+        : authority
+    )),
+  )
   const isAdmin = set.has(ROLES.SYSTEM_ADMIN)
 
   return {
@@ -83,8 +123,16 @@ export function createAbility(user) {
     roles: ROLE_PRIORITY.filter((role) => set.has(role)),
     has: (code) => isAdmin || set.has(code),
     hasAny: (...codes) => isAdmin || codes.some((code) => set.has(code)),
-    hasRole: (role) => set.has(role),
+    hasRole: (role) => set.has(canonicalRole(role)),
     primaryRole: ROLE_PRIORITY.find((role) => set.has(role)) || null,
+    importMode: () => {
+      if (set.has(ROLES.HR_ADMIN) || set.has(ROLES.ORG_ADMIN) || set.has(ROLES.WING_ADMIN) || set.has(ROLES.DIVISION_ADMIN)) return 'HR'
+      if (set.has(ROLES.DATA_IMPORT_OPERATOR)) return 'IMPORT_OPERATOR'
+      if (set.has(ROLES.IMPORT_CHECKER)) return 'IMPORT_CHECKER'
+      if (set.has(ROLES.IMPORT_COMMITTER)) return 'IMPORT_COMMITTER'
+      if (set.has(ROLES.PAYROLL_CHECKER)) return 'PAYROLL_CHECKER'
+      return 'GENERAL'
+    },
   }
 }
 
@@ -133,11 +181,11 @@ export const NAV_GROUPS = [
         id: 'approvals',
         label: 'Approval inbox',
         icon: 'check',
-        any: ['payroll.approve'],
+        any: ['payroll.approve', 'salary.manage'],
       },
       {
         id: 'imports',
-        label: 'Salary / Data Import',
+        label: 'Data import',
         icon: 'upload',
         any: ['salary.manage', 'payroll.prepare', 'employee.create'],
       },
@@ -187,7 +235,7 @@ export const NAV_GROUPS = [
       },
       {
         id: 'access',
-        label: 'User Management',
+        label: 'User management',
         icon: 'shield',
         any: ['user.manage', 'scope.manage'],
         availability: 'partial-endpoint',

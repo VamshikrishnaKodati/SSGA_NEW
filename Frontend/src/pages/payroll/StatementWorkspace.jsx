@@ -11,6 +11,7 @@ import {
   payrollBatchStatusLabel,
 } from '../../lib/payrollWorkspace.js'
 import { isAwaitingApproval } from '../../lib/approvalInbox.js'
+import { EmptyState } from '../../components/ui.jsx'
 
 function formatDate(value) {
   if (!value) return '—'
@@ -320,7 +321,7 @@ export default function StatementWorkspace({ user }) {
         })) {
           setError(
             eligibility?.reason
-              || 'The backend has not confirmed finalization eligibility for this batch version.',
+              || 'Finalization eligibility has not been confirmed for this batch version.',
           )
           await loadBatches()
           return
@@ -390,17 +391,6 @@ export default function StatementWorkspace({ user }) {
 
   return (
     <section className="account-panel">
-      <div className="section-heading">
-        <div>
-          <h3>Payroll &amp; salary statements</h3>
-          <p>
-            Run the monthly payroll cycle and review issued statements and
-            reports
-          </p>
-        </div>
-        <span className="status-pill">HMWSSB · Payroll</span>
-      </div>
-
       <nav className="module-tabs">
         {tabs.includes('statements') && (
           <button
@@ -1003,7 +993,15 @@ function StatementsTab({
   onReissue,
 }) {
   if (statements.length === 0) {
-    return <p className="muted-text">No salary statements are available yet.</p>
+    return (
+      <div className="module-body">
+        <EmptyState
+          icon="file"
+          title="No statements issued yet"
+          description="Statements appear here after a finalized payroll batch generates them"
+        />
+      </div>
+    )
   }
 
   return (

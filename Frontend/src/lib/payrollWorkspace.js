@@ -1,11 +1,11 @@
 export const PAYROLL_WORKFLOW_STEPS = [
-  'Period & Scope',
-  'Readiness Check',
-  'Generate Salary',
-  'Verify & Review',
+  'Period & scope',
+  'Readiness check',
+  'Generate salary',
+  'Verify & review',
   'Submit',
   'Approval',
-  'Finalize & Lock',
+  'Finalize & lock',
   'Statements',
 ]
 

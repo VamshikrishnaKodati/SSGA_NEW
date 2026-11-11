@@ -20,7 +20,7 @@ function toError(data, response) {
   const message =
     typeof data === 'string'
       ? data
-      : data?.message || data?.error || `Request failed (${response.status})`
+      : data?.message || data?.detail || data?.error || `Request failed (${response.status})`
 
   const error = new Error(message)
   error.status = response.status
@@ -94,6 +94,20 @@ export const authApi = {
     return request('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
+    })
+  },
+
+  forgotPassword(username) {
+    return request('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    })
+  },
+
+  resetPassword(token, newPassword) {
+    return request('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
     })
   },
 

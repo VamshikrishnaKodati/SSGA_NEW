@@ -15,7 +15,7 @@ import {
   friendlyError,
   humanizeStatus,
 } from '../lib/format.js'
-import { ROLES } from '../lib/permissions.js'
+import { canonicalRole, ROLES } from '../lib/permissions.js'
 import {
   Alert,
   EmptyState,
@@ -113,20 +113,17 @@ function useRoleDashboardData(ability, onSessionExpired) {
 
 export default function RoleDashboard({ user, ability, onNavigate, onSessionExpired }) {
   const state = useRoleDashboardData(ability, onSessionExpired)
-  const roleCode = user.activeAssignment?.roleCode
-  const Dashboard = DASHBOARDS[
-    roleCode?.startsWith('ROLE_') ? roleCode : `ROLE_${roleCode}`
-  ]
+  const Dashboard = DASHBOARDS[canonicalRole(user.activeAssignment?.roleCode)]
 
   if (!Dashboard) {
     return (
       <>
-        <PageHeader title="Workspace unavailable" subtitle="No dashboard is configured for the active role." />
+        <PageHeader title="Workspace unavailable" subtitle="No dashboard is configured for the active role" />
         <section className="panel">
           <div className="panel-body">
             <EmptyState
               title="No role dashboard"
-              description="Contact an administrator to review this role assignment."
+              description="Contact an administrator to review this role assignment"
               icon="warning"
             />
           </div>
@@ -155,21 +152,10 @@ export default function RoleDashboard({ user, ability, onNavigate, onSessionExpi
   )
 }
 
-function DashboardFrame({ user, title, description, errors, metrics, links, children }) {
-  const assignment = user.activeAssignment
-
+function DashboardFrame({ title, description, errors, metrics, links, children }) {
   return (
     <>
       <PageHeader title={title} subtitle={description} />
-
-      <section className="scope-banner" aria-label="Active role and scope">
-        <Icon name="shield" size={16} />
-        <span><strong>{assignment.roleName}</strong> · {assignment.scopeLabel}</span>
-        {assignment.divisionName && <span className="scope-banner-detail">{assignment.divisionName}</span>}
-        {assignment.wingName && !assignment.divisionName && (
-          <span className="scope-banner-detail">{assignment.wingName}</span>
-        )}
-      </section>
 
       {errors.length > 0 && (
         <div className="section-gap">
@@ -207,7 +193,7 @@ function DashboardFrame({ user, title, description, errors, metrics, links, chil
           {links.items.length === 0 ? (
             <EmptyState
               title="No workspaces available"
-              description="No modules are enabled for this role and scope."
+              description="No modules are enabled for this role and scope"
               icon="lock"
             />
           ) : links.items.map((item) => (
@@ -259,18 +245,18 @@ function SystemAdminDashboard({ user, ability, data, errors, onNavigate }) {
   const employees = data.employees || []
   const scopeCount = (data.divisions || []).length
   const links = linkTools(onNavigate, ability, [
-    { route: 'access', label: 'Users & access', description: 'Review access assigned to this account.', icon: 'shield', permissions: ['user.manage', 'scope.manage'] },
-    { route: 'organization', label: 'Organization master', description: 'Maintain the organization hierarchy.', icon: 'building', permissions: ['organization.view', 'wing.view', 'division.view'] },
-    { route: 'salary-components', label: 'Salary components', description: 'Review the salary component catalogue.', icon: 'layers', permissions: ['salary.view'] },
-    { route: 'audit', label: 'Audit & compliance', description: 'Search scoped audit events.', icon: 'history', permissions: ['audit.view'] },
-    { route: 'reports', label: 'Reports & export', description: 'Review authorized reports.', icon: 'chart', permissions: ['report.view'] },
-    { route: 'system', label: 'System health', description: 'Check API availability.', icon: 'server', permissions: ['user.manage'] },
+    { route: 'access', label: 'User management', description: 'Review access assigned to this account', icon: 'shield', permissions: ['user.manage', 'scope.manage'] },
+    { route: 'organization', label: 'Organization master', description: 'Maintain the organization hierarchy', icon: 'building', permissions: ['organization.view', 'wing.view', 'division.view'] },
+    { route: 'salary-components', label: 'Salary components', description: 'Review salary components', icon: 'layers', permissions: ['salary.view'] },
+    { route: 'audit', label: 'Audit trail', description: 'Search scoped audit events', icon: 'history', permissions: ['audit.view'] },
+    { route: 'reports', label: 'Reports', description: 'Review reports available to your role', icon: 'chart', permissions: ['report.view'] },
+    { route: 'system', label: 'System health', description: 'Check service availability', icon: 'server', permissions: ['user.manage'] },
   ])
   return (
-    <DashboardFrame user={user} title="Administrator dashboard" description="System health and administration within your authorized scope." errors={errors} links={links} metrics={[
+    <DashboardFrame user={user} title="Administrator dashboard" description="System health and administration for your scope" errors={errors} links={links} metrics={[
       { label: 'Employees in scope', value: formatNumber(employees.length), icon: 'users', route: 'employees' },
       { label: 'Divisions in scope', value: formatNumber(scopeCount), icon: 'building', route: 'organization' },
-      { label: 'API health', value: data.health ? 'Reachable' : 'Not checked', foot: data.health?.status || 'Health endpoint result', icon: 'server', route: 'system' },
+      { label: 'Service health', value: data.health ? 'Reachable' : 'Not checked', foot: data.health?.status || 'Latest status check', icon: 'server', route: 'system' },
     ]} />
   )
 }
@@ -299,13 +285,13 @@ function OrganizationAdminDashboard({ user, ability, data, errors, onNavigate })
         : `${formatNumber(inProgress)} in progress`
 
   const links = linkTools(onNavigate, ability, [
-    { route: 'employees', label: 'Employee master', description: 'Search and maintain employee records.', icon: 'users', permissions: ['employee.view'] },
-    { route: 'organization', label: 'Organization master', description: 'Manage organization and payroll units.', icon: 'building', permissions: ['organization.manage'] },
-    { route: 'salary-components', label: 'Salary component master', description: 'Review active salary components.', icon: 'layers', permissions: ['salary.view'] },
-    { route: 'imports', label: 'Data import', description: 'Upload and validate authorized data.', icon: 'upload', permissions: ['salary.manage', 'employee.create'] },
-    { route: 'imports', label: 'Salary revisions', description: 'Import and validate approved salary revision sheets.', icon: 'trendUp', permissions: ['salary.manage'] },
-    { route: 'reports', label: 'Reports and salary history', description: 'Review scoped reports and employee history.', icon: 'chart', permissions: ['report.view'] },
-    { route: 'payroll', label: 'Payroll overview', description: 'Monitor periods and batch workflow.', icon: 'calculator', permissions: ['payroll.view', 'payroll.prepare'] },
+    { route: 'employees', label: 'Employee master', description: 'Search and maintain employee records', icon: 'users', permissions: ['employee.view'] },
+    { route: 'organization', label: 'Organization master', description: 'Manage organization and payroll units', icon: 'building', permissions: ['organization.manage'] },
+    { route: 'salary-components', label: 'Salary components', description: 'Review active salary components', icon: 'layers', permissions: ['salary.view'] },
+    { route: 'imports', label: 'Data import', description: 'Upload and validate authorized data', icon: 'upload', permissions: ['salary.manage', 'employee.create'] },
+    { route: 'imports', label: 'Salary revisions', description: 'Import and validate approved salary revision sheets', icon: 'trendUp', permissions: ['salary.manage'] },
+    { route: 'reports', label: 'Reports and salary history', description: 'Review scoped reports and employee history', icon: 'chart', permissions: ['report.view'] },
+    { route: 'payroll', label: 'Payroll overview', description: 'Monitor periods and batch workflow', icon: 'calculator', permissions: ['payroll.view', 'payroll.prepare'] },
     {
       route: ability.has('audit.view') ? 'audit' : 'notifications',
       label: ability.has('audit.view') ? 'Audit & notifications' : 'Notifications',
@@ -318,7 +304,7 @@ function OrganizationAdminDashboard({ user, ability, data, errors, onNavigate })
   ])
 
   return (
-    <DashboardFrame user={user} title="Organization dashboard" description="Employee administration and payroll oversight for your organization." errors={errors} links={links} metrics={[
+    <DashboardFrame user={user} title="Organization dashboard" description="Employee administration and payroll oversight for your organization" errors={errors} links={links} metrics={[
       { label: 'Total employees', value: formatNumber(employees.length), foot: 'Employees in your organization', icon: 'users', route: 'employees' },
       { label: 'Active employees', value: formatNumber(active), foot: employees.length ? `${Math.round((active / employees.length) * 100)}% of employees in scope` : 'No employee records in scope', icon: 'check', route: 'employees' },
       { label: 'Wings', value: formatNumber(wingCount), foot: wingCount ? 'Wings represented in your scope' : 'No wings in scope', icon: 'layers', route: 'organization' },
@@ -374,14 +360,14 @@ function OrganizationAdminDashboard({ user, ability, data, errors, onNavigate })
 function WingAdminDashboard({ user, ability, data, errors, onNavigate }) {
   const batches = data.batches || []
   const links = linkTools(onNavigate, ability, [
-    { route: 'employees', label: 'Employee master', description: 'Browse employees visible in this wing.', icon: 'users', permissions: ['employee.view'] },
-    { route: 'organization', label: 'Division overview', description: 'Review the divisions in your assigned scope.', icon: 'building', permissions: ['division.view'] },
-    { route: 'payroll', label: 'Payroll overview', description: 'Monitor batch status across your wing.', icon: 'calculator', permissions: ['payroll.view'] },
-    { route: 'reports', label: 'Wing reports and history', description: 'Review reports available within scope.', icon: 'chart', permissions: ['report.view'] },
-    { route: 'imports', label: 'Salary imports', description: 'Use authorized import workflows.', icon: 'upload', permissions: ['salary.manage'] },
+    { route: 'employees', label: 'Employee master', description: 'Browse employees visible in this wing', icon: 'users', permissions: ['employee.view'] },
+    { route: 'organization', label: 'Division overview', description: 'Review the divisions in your assigned scope', icon: 'building', permissions: ['division.view'] },
+    { route: 'payroll', label: 'Payroll overview', description: 'Monitor batch status across your wing', icon: 'calculator', permissions: ['payroll.view'] },
+    { route: 'reports', label: 'Wing reports and history', description: 'Review reports available within scope', icon: 'chart', permissions: ['report.view'] },
+    { route: 'imports', label: 'Salary imports', description: 'Use authorized import workflows', icon: 'upload', permissions: ['salary.manage'] },
   ])
   return (
-    <DashboardFrame user={user} title="Wing dashboard" description="Employee and payroll overview for your assigned wing." errors={errors} links={links} metrics={[
+    <DashboardFrame user={user} title="Wing dashboard" description="Employee and payroll overview for your assigned wing" errors={errors} links={links} metrics={[
       { label: 'Employees in scope', value: formatNumber((data.employees || []).length), icon: 'users', route: 'employees' },
       { label: 'Divisions in scope', value: formatNumber((data.divisions || []).length), icon: 'building', route: 'organization' },
       { label: 'Open payroll batches', value: formatNumber(batches.filter((batch) => batch.status !== 'FINALIZED').length), icon: 'calculator', route: 'payroll' },
@@ -393,13 +379,13 @@ function WingAdminDashboard({ user, ability, data, errors, onNavigate }) {
 function DivisionAdminDashboard({ user, ability, data, errors, onNavigate }) {
   const batches = data.batches || []
   const links = linkTools(onNavigate, ability, [
-    { route: 'employees', label: 'Employee master', description: 'Review employee records in your division.', icon: 'users', permissions: ['employee.view'] },
-    { route: 'payroll', label: 'Division payroll', description: 'Review payroll batch workflow.', icon: 'calculator', permissions: ['payroll.view'] },
-    { route: 'reports', label: 'Division reports and history', description: 'View reports within your assigned scope.', icon: 'chart', permissions: ['report.view'] },
-    { route: 'organization', label: 'Division details', description: 'View organization hierarchy.', icon: 'building', permissions: ['division.view'] },
+    { route: 'employees', label: 'Employee master', description: 'Review employee records in your division', icon: 'users', permissions: ['employee.view'] },
+    { route: 'payroll', label: 'Division payroll', description: 'Review payroll batch workflow', icon: 'calculator', permissions: ['payroll.view'] },
+    { route: 'reports', label: 'Division reports and history', description: 'View reports within your assigned scope', icon: 'chart', permissions: ['report.view'] },
+    { route: 'organization', label: 'Division details', description: 'View organization hierarchy', icon: 'building', permissions: ['division.view'] },
   ])
   return (
-    <DashboardFrame user={user} title="Division dashboard" description="Employee and payroll overview for your assigned division." errors={errors} links={links} metrics={[
+    <DashboardFrame user={user} title="Division dashboard" description="Employee and payroll overview for your assigned division" errors={errors} links={links} metrics={[
       { label: 'Employees', value: formatNumber((data.employees || []).length), icon: 'users', route: 'employees' },
       { label: 'Payroll batches', value: formatNumber(batches.length), icon: 'calculator', route: 'payroll' },
       { label: 'Awaiting approval', value: formatNumber(statusCount(batches, 'SUBMITTED')), icon: 'clock', route: 'payroll' },
@@ -412,14 +398,14 @@ function PayrollOperatorDashboard({ user, ability, data, errors, onNavigate }) {
   const batches = data.batches || []
   const currentPeriod = (data.periods || []).find((period) => period.status === 'OPEN')
   const links = linkTools(onNavigate, ability, [
-    { route: 'payroll', label: 'Payroll processing', description: 'Prepare, verify and submit payroll batches.', icon: 'calculator', permissions: ['payroll.prepare', 'payroll.verify', 'payroll.submit'] },
-    { route: 'imports', label: 'Monthly salary inputs', description: 'Upload and validate approved salary input files.', icon: 'upload', permissions: ['salary.prepare', 'salary.manage'] },
-    { route: 'employees', label: 'Employee master', description: 'Read employee data available in your scope.', icon: 'users', permissions: ['employee.view'] },
-    { route: 'reports', label: 'Payroll reports and history', description: 'Open reports when granted.', icon: 'chart', permissions: ['report.view'] },
-    { route: 'statements', label: 'Authorized statements', description: 'View statements permitted by your role.', icon: 'file', permissions: ['statement.view', 'statement.download'] },
+    { route: 'payroll', label: 'Payroll processing', description: 'Prepare, verify and submit payroll batches', icon: 'calculator', permissions: ['payroll.prepare', 'payroll.verify', 'payroll.submit'] },
+    { route: 'imports', label: 'Monthly salary inputs', description: 'Upload and validate approved salary input files', icon: 'upload', permissions: ['salary.prepare', 'salary.manage'] },
+    { route: 'employees', label: 'Employee master', description: 'Read employee data available in your scope', icon: 'users', permissions: ['employee.view'] },
+    { route: 'reports', label: 'Payroll reports and history', description: 'Open reports available to your role', icon: 'chart', permissions: ['report.view'] },
+    { route: 'statements', label: 'Authorized statements', description: 'View statements permitted by your role', icon: 'file', permissions: ['statement.view', 'statement.download'] },
   ])
   return (
-    <DashboardFrame user={user} title="Payroll operator dashboard" description="Prepare and submit payroll for independent review." errors={errors} links={links} metrics={[
+    <DashboardFrame user={user} title="Payroll operator dashboard" description="Prepare and submit payroll for independent review" errors={errors} links={links} metrics={[
       { label: 'Active period', value: currentPeriod?.label || 'None open', icon: 'calendar', route: 'payroll' },
       { label: 'Needs preparation', value: formatNumber(batches.filter((batch) => ['DRAFT', 'REJECTED', 'REOPENED'].includes(batch.status)).length), icon: 'calculator', route: 'payroll' },
       { label: 'Awaiting approval', value: formatNumber(statusCount(batches, 'SUBMITTED')), icon: 'clock', route: 'payroll' },
@@ -431,13 +417,13 @@ function PayrollOperatorDashboard({ user, ability, data, errors, onNavigate }) {
 function ApproverDashboard({ user, ability, data, errors, onNavigate }) {
   const batches = data.batches || []
   const links = linkTools(onNavigate, ability, [
-    { route: 'approvals', label: 'Approval inbox', description: 'Review batch details and make the independent decision.', icon: 'check', permissions: ['payroll.approve'] },
-    { route: 'payroll', label: 'Batch verification', description: 'Read scoped batch details and readiness.', icon: 'calculator', permissions: ['payroll.view', 'payroll.verify'] },
-    { route: 'employees', label: 'Employee salary review', description: 'Review employee data permitted by your role.', icon: 'users', permissions: ['employee.view', 'salary.view'] },
-    { route: 'reports', label: 'Reports', description: 'View authorized payroll reports.', icon: 'chart', permissions: ['report.view'] },
+    { route: 'approvals', label: 'Approval inbox', description: 'Review batch details and make the independent decision', icon: 'check', permissions: ['payroll.approve'] },
+    { route: 'payroll', label: 'Batch verification', description: 'Read scoped batch details and readiness', icon: 'calculator', permissions: ['payroll.view', 'payroll.verify'] },
+    { route: 'employees', label: 'Employee salary review', description: 'Review employee data permitted by your role', icon: 'users', permissions: ['employee.view', 'salary.view'] },
+    { route: 'reports', label: 'Reports', description: 'View authorized payroll reports', icon: 'chart', permissions: ['report.view'] },
   ])
   return (
-    <DashboardFrame user={user} title="Approver dashboard" description="Review submitted batches as an independent checker." errors={errors} links={links} metrics={[
+    <DashboardFrame user={user} title="Approver dashboard" description="Review submitted batches as an independent checker" errors={errors} links={links} metrics={[
       { label: 'Awaiting decision', value: formatNumber(statusCount(batches, 'SUBMITTED')), icon: 'clock', route: 'approvals' },
       { label: 'Approved batches', value: formatNumber(statusCount(batches, 'APPROVED')), icon: 'check', route: 'approvals' },
       { label: 'Employees in scope', value: formatNumber((data.employees || []).length), icon: 'users', route: 'employees' },
@@ -447,13 +433,13 @@ function ApproverDashboard({ user, ability, data, errors, onNavigate }) {
 
 function ReportUserDashboard({ user, ability, data, errors, onNavigate }) {
   const links = linkTools(onNavigate, ability, [
-    { route: 'reports', label: 'Report catalogue', description: 'Filter and preview available payroll reports.', icon: 'chart', permissions: ['report.view'] },
-    { route: 'statements', label: 'Salary statements', description: 'Read or download authorized statements.', icon: 'file', permissions: ['statement.view', 'statement.download'] },
-    { route: 'employees', label: 'Employee history', description: 'Open employee history where permitted.', icon: 'users', permissions: ['employee.view', 'report.view'] },
+    { route: 'reports', label: 'Reports', description: 'Filter and preview available payroll reports', icon: 'chart', permissions: ['report.view'] },
+    { route: 'statements', label: 'Salary statements', description: 'Read or download authorized statements', icon: 'file', permissions: ['statement.view', 'statement.download'] },
+    { route: 'employees', label: 'Employee history', description: 'Open employee history where permitted', icon: 'users', permissions: ['employee.view', 'report.view'] },
   ])
   const reportRows = Array.isArray(data.reports) ? data.reports : []
   return (
-    <DashboardFrame user={user} title="Report user dashboard" description="Reports and statement access within your assigned scope." errors={errors} links={links} metrics={[
+    <DashboardFrame user={user} title="Report user dashboard" description="Reports and statement access within your assigned scope" errors={errors} links={links} metrics={[
       { label: 'Report rows available', value: formatNumber(reportRows.length), icon: 'chart', route: 'reports' },
       { label: 'Payroll periods', value: formatNumber((data.periods || []).length), icon: 'calendar', route: 'reports' },
       { label: 'Statements', value: formatNumber((data.statements || []).length), icon: 'file', route: 'statements' },
@@ -468,12 +454,12 @@ function EmployeeDashboard({ user, ability, data, errors, onNavigate }) {
     (left, right) => String(right.generatedAt || '').localeCompare(String(left.generatedAt || '')),
   )[0]
   const links = linkTools(onNavigate, ability, [
-    { route: 'statements', label: 'My salary statements', description: 'View and download statements issued to you.', icon: 'file', permissions: ['statement.view', 'statement.download'] },
-    { route: 'profile', label: 'My profile', description: 'Review your linked employee information.', icon: 'badge', permissions: ['employee.view'] },
-    { route: 'reports', label: 'My salary history', description: 'Open history when the backend grants the required report permission.', icon: 'history', permissions: ['report.view'] },
+    { route: 'statements', label: 'My salary statements', description: 'View and download statements issued to you', icon: 'file', permissions: ['statement.view', 'statement.download'] },
+    { route: 'profile', label: 'My profile', description: 'Review your linked employee information', icon: 'badge', permissions: ['employee.view'] },
+    { route: 'reports', label: 'My salary history', description: 'Open your salary history', icon: 'history', permissions: ['report.view'] },
   ])
   return (
-    <DashboardFrame user={user} title="My dashboard" description="Your employee profile and issued salary records." errors={errors} links={links} metrics={[
+    <DashboardFrame user={user} title="My dashboard" description="Your employee profile and issued salary records" errors={errors} links={links} metrics={[
       { label: 'Employee record', value: employee?.employeeCode || 'Not linked', foot: employee?.name || 'Contact your HR administrator', icon: 'badge', route: 'profile' },
       { label: 'Issued statements', value: formatNumber(statements.length), icon: 'file', route: 'statements' },
       { label: 'Latest statement', value: latest?.periodLabel || 'None issued', foot: latest ? humanizeStatus(latest.status) : 'No statement available', icon: 'clock', route: 'statements' },
@@ -484,11 +470,11 @@ function EmployeeDashboard({ user, ability, data, errors, onNavigate }) {
 function AuditorDashboard({ user, ability, data, errors, onNavigate }) {
   const audit = data.audit?.events || []
   const links = linkTools(onNavigate, ability, [
-    { route: 'audit', label: 'Audit trail search', description: 'Search read-only events within authorized scope.', icon: 'history', permissions: ['audit.view'] },
-    { route: 'reports', label: 'Audit and payroll reports', description: 'View reports available to the auditor role.', icon: 'chart', permissions: ['report.view'] },
+    { route: 'audit', label: 'Audit trail search', description: 'Search read-only events within authorized scope', icon: 'history', permissions: ['audit.view'] },
+    { route: 'reports', label: 'Audit and payroll reports', description: 'View reports available to the auditor role', icon: 'chart', permissions: ['report.view'] },
   ])
   return (
-    <DashboardFrame user={user} title="Auditor dashboard" description="Read-only audit visibility and reports for the active scope." errors={errors} links={links} metrics={[
+    <DashboardFrame user={user} title="Auditor dashboard" description="Read-only audit visibility and reports for the active scope" errors={errors} links={links} metrics={[
       { label: 'Recent audit events', value: formatNumber(audit.length), icon: 'history', route: 'audit' },
       { label: 'Report rows available', value: formatNumber((data.reports || []).length), icon: 'chart', route: 'reports' },
       { label: 'Access mode', value: 'Read-only', icon: 'lock' },
@@ -496,7 +482,7 @@ function AuditorDashboard({ user, ability, data, errors, onNavigate }) {
       {audit.length > 0 && (
         <section className="panel section-gap">
           <div className="panel-head">
-            <div><h2>Recent audit activity</h2><p>Latest events returned by the scoped audit endpoint</p></div>
+              <div><h2>Recent audit activity</h2><p>Latest activity in your scope</p></div>
             <button type="button" className="btn subtle sm" onClick={() => onNavigate('audit')}>Open audit trail</button>
           </div>
           <div className="panel-body audit-summary-list">
@@ -517,14 +503,14 @@ function AuditorDashboard({ user, ability, data, errors, onNavigate }) {
 function PayrollFinalizerDashboard({ user, ability, data, errors, onNavigate }) {
   const batches = data.batches || []
   const links = linkTools(onNavigate, ability, [
-    { route: 'statements', label: 'Approved batch queue', description: 'Review approved batches and finalize through the authorized workflow.', icon: 'check', permissions: ['payroll.finalize'] },
-    { route: 'statements', label: 'Statement generation', description: 'Generate statements only after batch finalization.', icon: 'file', permissions: ['statement.generate'] },
-    { route: 'reports', label: 'Finalized register and reports', description: 'Review finalized payroll in your scope.', icon: 'chart', permissions: ['report.view'] },
-    { route: 'audit', label: 'Finalization history', description: 'Review read-only audit events in the assigned scope.', icon: 'history', permissions: ['audit.view'] },
+    { route: 'statements', label: 'Approved batch queue', description: 'Review approved batches and finalize through the authorized workflow', icon: 'check', permissions: ['payroll.finalize'] },
+    { route: 'statements', label: 'Statement generation', description: 'Generate statements only after batch finalization', icon: 'file', permissions: ['statement.generate'] },
+    { route: 'reports', label: 'Finalized register and reports', description: 'Review finalized payroll in your scope', icon: 'chart', permissions: ['report.view'] },
+    { route: 'audit', label: 'Finalization history', description: 'Review read-only audit events in the assigned scope', icon: 'history', permissions: ['audit.view'] },
   ])
   const finalized = batches.filter((batch) => batch.status === 'FINALIZED')
   return (
-    <DashboardFrame user={user} title="Finalizer dashboard" description="Finalize approved payroll as a distinct, authorized step; finalization is not bank disbursement." errors={errors} links={links} metrics={[
+    <DashboardFrame user={user} title="Finalizer dashboard" description="Finalize approved payroll as a distinct, authorized step; finalization is not bank disbursement" errors={errors} links={links} metrics={[
       { label: 'Approved batch queue', value: formatNumber(statusCount(batches, 'APPROVED')), icon: 'check', route: 'statements' },
       { label: 'Finalized batches', value: formatNumber(finalized.length), icon: 'lock', route: 'statements' },
       { label: 'Statements issued', value: formatNumber((data.statements || []).length), icon: 'file', route: 'statements' },

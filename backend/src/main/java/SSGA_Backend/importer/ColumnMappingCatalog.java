@@ -104,6 +104,14 @@ public final class ColumnMappingCatalog {
                         "PAN", "PAN NO", "PAN NUMBER"),
                 f("aadhaar", "Aadhaar", TEXT, false,
                         "AADHAAR", "AADHAR", "AADHAAR NO", "AADHAR NO", "UID"),
+                f("pf", "PF number", TEXT, false,
+                        "PF", "PF NO", "PF NUMBER"),
+                f("nps", "NPS number", TEXT, false,
+                        "NPS", "NPS NO", "NPS NUMBER"),
+                f("gpf", "GPF number", TEXT, false,
+                        "GPF", "GPF NO", "GPF NUMBER"),
+                f("email", "Email", TEXT, false,
+                        "EMAIL", "EMAIL ID", "EMAIL ADDRESS"),
                 f("employeeStatus", "Employee status", TEXT, false,
                         "EMPLOYEE STATUS", "EMP STATUS", "STATUS"),
                 f("bankAccount", "Bank account", TEXT, false,
@@ -120,7 +128,7 @@ public final class ColumnMappingCatalog {
         List<FieldSpec> employeeMasterAndComponents = List.of(
                 f("employeeCode", "Employee code", TEXT, true,
                         "EMP CODE", "EMPCODE", "EMPLOYEE CODE", "EMPLOYEE CODE NO",
-                        "EMP NO", "EMPNO", "EMPLOYEE NUMBER", "STAFF NO"),
+                        "EMP NO", "EMPNO", "EMPLOYEE NUMBER", "STAFF NO", "STAFF CODE"),
                 f("hrmsId", "HRMS ID", TEXT, true,
                         "HRMS ID", "HRMSID", "HRMS NO", "HRMS", "HRMS CODE"),
                 f("employeeName", "Employee name", TEXT, false,
@@ -131,7 +139,7 @@ public final class ColumnMappingCatalog {
                         "WING", "WING NAME"),
                 f("division", "Division", TEXT, true,
                         "DIVISION", "DIVISION NAME"),
-                f("divisionId", "Division ID", NUMBER, true,
+                f("divisionId", "Division ID / code", TEXT, true,
                         "DIVISION ID", "DIV ID", "DIVISION CODE", "DIV CODE"),
                 f("dateOfJoining", "Date of joining", DATE, false,
                         "DATE OF JOINING", "DOJ", "JOINING DATE"),
@@ -141,14 +149,23 @@ public final class ColumnMappingCatalog {
                         "EMPLOYMENT TYPE", "EMP TYPE", "EMPLOYEE TYPE"),
                 f("payScale", "Pay scale", TEXT, false,
                         "PAY SCALE", "PAYSCALE", "SCALE"),
-                f("basicPay", "Basic pay", NUMBER, false,
-                        "BASIC PAY", "BASICPAY", "BASIC"),
                 f("contact", "Contact", TEXT, false,
                         "CONTACT", "CONTACT NO", "PHONE", "MOBILE", "MOBILE NO", "PHONE NO"),
                 f("pan", "PAN", TEXT, false,
                         "PAN", "PAN NO", "PAN NUMBER"),
                 f("aadhaar", "Aadhaar", TEXT, false,
                         "AADHAAR", "AADHAR", "AADHAAR NO", "AADHAR NO", "UID"),
+                // Combined sheets also carry salary-component columns. A bare
+                // PF/NPS/GPF header there is the deduction component, not the
+                // identity number, so only explicit "... number" aliases are used.
+                f("pf", "PF number", TEXT, false,
+                        "PF NO", "PF NUMBER"),
+                f("nps", "NPS number", TEXT, false,
+                        "NPS NO", "NPS NUMBER"),
+                f("gpf", "GPF number", TEXT, false,
+                        "GPF NO", "GPF NUMBER"),
+                f("email", "Email", TEXT, false,
+                        "EMAIL", "EMAIL ID", "EMAIL ADDRESS"),
                 f("employeeStatus", "Employee status", TEXT, false,
                         "EMPLOYEE STATUS", "EMP STATUS", "STATUS"),
                 f("bankAccount", "Bank account", TEXT, false,
@@ -180,9 +197,23 @@ public final class ColumnMappingCatalog {
         map.put("SALARY_ENTITLEMENTS", List.of(
                 f("employeeCode", "Employee code", TEXT, true,
                         "EMP CODE", "EMPCODE", "EMPLOYEE CODE", "EMPLOYEE CODE NO",
-                        "EMP NO", "EMPNO", "EMPLOYEE NUMBER", "STAFF NO"),
+                        "EMP NO", "EMPNO", "EMPLOYEE NUMBER", "STAFF NO", "STAFF CODE"),
                 f("hrmsId", "HRMS ID", TEXT, true,
                         "HRMS ID", "HRMSID", "HRMS NO", "HRMS", "HRMS CODE"),
+                f("aadhaar", "Aadhaar", TEXT, true,
+                        "AADHAAR", "AADHAR", "AADHAAR NO", "AADHAR NO", "UID"),
+                f("pan", "PAN", TEXT, true,
+                        "PAN", "PAN NO", "PAN NUMBER"),
+                f("contact", "Contact", TEXT, true,
+                        "CONTACT", "CONTACT NO", "PHONE", "MOBILE", "MOBILE NO", "PHONE NO"),
+                f("email", "Email", TEXT, true,
+                        "EMAIL", "EMAIL ID", "EMAIL ADDRESS"),
+                f("pf", "PF number", TEXT, true,
+                        "PF NO", "PF NUMBER"),
+                f("nps", "NPS number", TEXT, true,
+                        "NPS NO", "NPS NUMBER"),
+                f("gpf", "GPF number", TEXT, true,
+                        "GPF NO", "GPF NUMBER"),
                 f("employeeName", "Employee name", TEXT, false,
                         "NAME", "EMPLOYEE NAME", "EMP NAME", "EMPLOYEENAME", "EMPLOYEE"),
                 f("division", "Division", TEXT, true,
@@ -208,9 +239,23 @@ public final class ColumnMappingCatalog {
         map.put("PAYROLL_HISTORY", List.of(
                 f("employeeCode", "Employee code", TEXT, true,
                         "EMP CODE", "EMPCODE", "EMPLOYEE CODE", "EMPLOYEE CODE NO",
-                        "EMP NO", "EMPNO", "EMPLOYEE NUMBER", "STAFF NO"),
+                        "EMP NO", "EMPNO", "EMPLOYEE NUMBER", "STAFF NO", "STAFF CODE"),
                 f("hrmsId", "HRMS ID", TEXT, true,
                         "HRMS ID", "HRMSID", "HRMS NO", "HRMS", "HRMS CODE"),
+                f("aadhaar", "Aadhaar", TEXT, true,
+                        "AADHAAR", "AADHAR", "AADHAAR NO", "AADHAR NO", "UID"),
+                f("pan", "PAN", TEXT, true,
+                        "PAN", "PAN NO", "PAN NUMBER"),
+                f("contact", "Contact", TEXT, true,
+                        "CONTACT", "CONTACT NO", "PHONE", "MOBILE", "MOBILE NO", "PHONE NO"),
+                f("email", "Email", TEXT, true,
+                        "EMAIL", "EMAIL ID", "EMAIL ADDRESS"),
+                f("pf", "PF number", TEXT, true,
+                        "PF NO", "PF NUMBER"),
+                f("nps", "NPS number", TEXT, true,
+                        "NPS NO", "NPS NUMBER"),
+                f("gpf", "GPF number", TEXT, true,
+                        "GPF NO", "GPF NUMBER"),
                 f("employeeName", "Employee name", TEXT, false,
                         "NAME", "EMPLOYEE NAME", "EMP NAME", "EMPLOYEENAME", "EMPLOYEE"),
                 f("division", "Division", TEXT, true,
@@ -242,10 +287,22 @@ public final class ColumnMappingCatalog {
         ));
 
         map.put("SALARY_REVISIONS", List.of(
-                f("employeeCode", "Employee code", TEXT, true,
-                        "EMP CODE", "EMPCODE", "EMPLOYEE CODE", "EMP NO", "EMPNO"),
                 f("hrmsId", "HRMS ID", TEXT, true,
                         "HRMS ID", "HRMSID", "HRMS NO", "HRMS"),
+                f("aadhaar", "Aadhaar", TEXT, true,
+                        "AADHAAR", "AADHAR", "AADHAAR NO", "AADHAR NO", "UID"),
+                f("pan", "PAN", TEXT, true,
+                        "PAN", "PAN NO", "PAN NUMBER"),
+                f("contact", "Contact", TEXT, true,
+                        "CONTACT", "CONTACT NO", "PHONE", "MOBILE", "MOBILE NO", "PHONE NO"),
+                f("email", "Email", TEXT, true,
+                        "EMAIL", "EMAIL ID", "EMAIL ADDRESS"),
+                f("pf", "PF number", TEXT, true,
+                        "PF NO", "PF NUMBER"),
+                f("nps", "NPS number", TEXT, true,
+                        "NPS NO", "NPS NUMBER"),
+                f("gpf", "GPF number", TEXT, true,
+                        "GPF NO", "GPF NUMBER"),
                 f("employeeName", "Employee name", TEXT, false,
                         "NAME", "EMPLOYEE NAME", "EMP NAME", "EMPLOYEE"),
                 f("effectiveFrom", "Effective from", DATE, false,
@@ -459,6 +516,38 @@ public final class ColumnMappingCatalog {
                 .replaceAll("[^A-Z0-9]+", "_")
                 .replaceAll("_+", "_")
                 .replaceAll("^_+|_+$", "");
+    }
+
+    /**
+     * Fuzzy key for salary-component matching. Source headers such as
+     * {@code BASIC_PAY} or {@code OVERTIME} resolve to master codes
+     * {@code BASIC} / {@code OT} when no exact match exists.
+     */
+    public static String componentKey(String value) {
+        String key = normalize(value);
+
+        if (key.isEmpty()) {
+            return key;
+        }
+
+        if (key.equals("OVERTIME") || key.equals("OVERTIME_PAY")) {
+            return "OT";
+        }
+
+        if (key.equals("DEARNESS_ALLOWANCE") || key.equals("DEARNESS_PAY")) {
+            return "DA";
+        }
+
+        if (key.equals("HOUSE_RENT_ALLOWANCE")
+                || key.equals("HOUSE_RENT_PAY")
+                || key.equals("HOUSE_RENT")) {
+            return "HRA";
+        }
+
+        String stripped = key.replaceAll(
+                "_(PAY|AMOUNT|VALUE|ALLOWANCE)$", "");
+
+        return stripped.isEmpty() ? key : stripped;
     }
 
     private static boolean looksNumeric(String value) {

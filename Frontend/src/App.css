@@ -61,14 +61,14 @@
   color: var(--brand-navy, #12345b);
   font-family: var(--font-sans);
   font-size: 23px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .brand h1 {
   margin: 0;
   font-family: var(--font-sans);
   font-size: 20px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .brand p {
@@ -110,14 +110,14 @@
 .welcome-panel {
   padding: 30px 32px;
   border-radius: 14px;
-  background: linear-gradient(135deg, var(--brand-green, #064734) 0%, var(--brand-navy, #12345b) 100%);
+  background: var(--brand-green, #064734);
   color: #fff;
 }
 
 .eyebrow {
   color: #8fb0d4;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 1.5px;
 }
 
@@ -137,7 +137,7 @@
 }
 
 .account-panel {
-  margin-top: 22px;
+  margin-top: 0;
   padding: 25px;
   min-width: 0;
   border: 1px solid var(--border, #e1e8f0);
@@ -156,6 +156,14 @@
   margin: 0;
   font-family: var(--font-sans);
   font-size: 17px;
+  font-weight: 600;
+}
+
+.section-heading h4 {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .section-heading p {
@@ -170,7 +178,7 @@
   background: var(--success-100, #e8f7ee);
   color: var(--success-700, #0b6b3a);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -274,7 +282,7 @@
 .module-tabs {
   display: flex;
   gap: 6px;
-  margin-top: 22px;
+  margin-top: 0;
   border-bottom: 1px solid var(--border, #e1e8f0);
 }
 
@@ -285,7 +293,7 @@
   background: none;
   color: var(--text-secondary, #51647c);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -333,13 +341,11 @@
 
 .data-table th {
   padding: 10px 12px;
-  border-bottom: 2px solid var(--border, #e1e8f0);
+  border-bottom: 1px solid var(--border, #e1e8f0);
   color: var(--text-secondary, #51647c);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
+  font-weight: 500;
   text-align: left;
-  text-transform: uppercase;
 }
 
 .data-table td {
@@ -375,7 +381,7 @@
   background: var(--grey-150, #ecf1f6);
   color: var(--text-secondary, #51647c);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .status-chip.issued {
@@ -529,8 +535,7 @@
 .line-table h5 {
   margin: 0 0 8px;
   font-size: 12px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--text-secondary, #51647c);
 }
 
@@ -637,7 +642,7 @@
   background: #f7faf8;
   color: var(--grey-800, #2b3c35);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -674,10 +679,8 @@
   display: block;
   margin-bottom: 5px;
   color: var(--text-secondary, #51647c);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.45px;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .payroll-context-grid strong {
@@ -692,7 +695,7 @@
 .payroll-workflow-stepper {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 7px;
+  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -705,14 +708,15 @@
 .payroll-workflow-step button {
   display: flex;
   width: 100%;
-  min-height: 76px;
+  min-height: 0;
   flex-direction: column;
   align-items: flex-start;
-  gap: 5px;
-  padding: 9px;
-  border: 1px solid var(--border, #e1e8f0);
-  border-radius: 9px;
-  background: #fff;
+  gap: 6px;
+  padding: 10px 8px 12px;
+  border: 0;
+  border-top: 2px solid var(--border, #e1e8f0);
+  border-radius: 0;
+  background: transparent;
   color: var(--grey-700, #46554e);
   text-align: left;
   cursor: pointer;
@@ -720,7 +724,7 @@
 
 .payroll-workflow-step button:disabled {
   cursor: not-allowed;
-  opacity: 0.65;
+  opacity: 0.55;
 }
 
 .payroll-workflow-step button:focus-visible {
@@ -729,22 +733,17 @@
 }
 
 .payroll-step-number {
-  display: grid;
-  width: 21px;
-  height: 21px;
-  place-items: center;
-  border-radius: 50%;
-  background: #edf1ef;
-  color: var(--grey-700, #46554e);
-  font-size: 10px;
-  font-weight: 800;
+  display: block;
+  color: var(--grey-500, #75897c);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .payroll-step-label {
   overflow-wrap: anywhere;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.3;
 }
 
 .payroll-workflow-step small {
@@ -754,34 +753,28 @@
 }
 
 .payroll-workflow-step.complete button {
-  border-color: #c4e1d3;
-  background: #f3fbf6;
+  border-top-color: #9ccdb5;
 }
 
 .payroll-workflow-step.complete .payroll-step-number {
-  background: #18764f;
-  color: #fff;
+  color: var(--success-700, #0b6b3a);
 }
 
 .payroll-workflow-step.current button,
 .payroll-workflow-step.active button {
-  border-color: #328264;
-  box-shadow: 0 0 0 2px rgb(50 130 100 / 10%);
+  border-top-color: var(--accent, #064734);
 }
 
 .payroll-workflow-step.current .payroll-step-number,
 .payroll-workflow-step.active .payroll-step-number {
-  background: #0a5c44;
-  color: #fff;
+  color: var(--accent-hover, #0a5c44);
 }
 
 .payroll-workflow-step.blocked button {
-  border-color: #ead4d2;
-  background: #fff9f8;
+  border-top-color: #e3b8b4;
 }
 
 .payroll-workflow-step.blocked .payroll-step-number {
-  background: #f5e2e0;
   color: #9c302a;
 }
 
@@ -792,7 +785,6 @@
   border: 1px solid var(--border, #e1e8f0);
   border-radius: 11px;
   background: #fff;
-  box-shadow: 0 1px 3px rgb(20 40 30 / 4%);
 }
 
 .payroll-card-heading {
@@ -821,10 +813,8 @@
 .payroll-selector-grid .form-field span,
 .payroll-search-field span {
   color: var(--text-secondary, #51647c);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .payroll-selector-grid select,
@@ -855,13 +845,14 @@
 
 .payroll-period-details span {
   color: var(--text-secondary, #51647c);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .payroll-period-details strong {
   overflow-wrap: anywhere;
   color: var(--grey-900, #172c25);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .payroll-period-description {
@@ -892,7 +883,8 @@
 .payroll-summary-card strong {
   display: block;
   color: var(--grey-900, #172c25);
-  font-size: 20px;
+  font-size: 22px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
@@ -900,7 +892,7 @@
   display: block;
   margin-top: 5px;
   color: var(--text-secondary, #51647c);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -913,9 +905,8 @@
   display: block;
   margin-bottom: 4px;
   color: var(--accent-hover, #0a5c44);
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.8px;
+  font-size: 10.5px;
+  font-weight: 500;
 }
 
 .payroll-stage-content {
@@ -1082,10 +1073,8 @@
 .payroll-batch-context span {
   margin-bottom: 4px;
   color: var(--text-secondary, #51647c);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.35px;
-  text-transform: uppercase;
+  font-size: 10.5px;
+  font-weight: 500;
 }
 
 .payroll-batch-context strong {
@@ -1197,15 +1186,15 @@
 
 .payroll-drawer-header span {
   color: var(--accent-hover, #0a5c44);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 10.5px;
+  font-weight: 500;
 }
 
 .payroll-drawer-header h4 {
   margin: 5px 0;
   color: var(--grey-900, #172c25);
-  font-size: 18px;
+  font-size: 17px;
+  font-weight: 600;
 }
 
 .payroll-drawer-header p {
@@ -1376,8 +1365,7 @@
 .form-field label {
   color: var(--text-secondary, #51647c);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  font-weight: 500;
 }
 
 .form-field input,
@@ -1427,11 +1415,11 @@
   background: var(--success-100, #e8f7ee);
   color: var(--success-700, #0b6b3a);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .totals-row-table {
-  font-weight: 700;
+  font-weight: 600;
   background: var(--forest-50, #f4fbf6);
 }
 
@@ -1591,7 +1579,7 @@
 
 .import-progress-details dd {
   margin: 0;
-  font-weight: 700;
+  font-weight: 600;
   text-align: right;
 }
 
@@ -1639,7 +1627,7 @@
   background: #e7f0ff;
   color: #15529a;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .import-log-level.warn {
@@ -1675,3 +1663,86 @@
     flex-direction: column;
   }
 }
+
+/* ===== Data import wizard (enterprise payroll) ===== */
+.import-wizard-shell { display: grid; gap: 14px; }
+.import-sticky-nav { position: sticky; top: 8px; z-index: 5; background: var(--bg, #f6faf4); padding: 2px 0; }
+.import-stepper { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.import-step {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px;
+  border: 1px solid var(--border, #d9e5da); border-radius: 8px; background: #fff;
+  color: var(--text-secondary, #53665d); font-size: 13px; font-weight: 500;
+}
+.import-step.active { border-color: var(--brand-green, #064734); color: var(--brand-green, #064734); background: var(--accent-wash, #f3fcea); }
+.import-step.done { border-color: #b7dcc8; color: #0b6b3a; background: #f2fbf6; }
+.import-step:disabled { opacity: .55; cursor: not-allowed; }
+.import-step-index { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: #eef3ee; font-size: 12px; }
+.import-step.active .import-step-index, .import-step.done .import-step-index { background: var(--brand-green, #064734); color: #fff; }
+.import-action-bar {
+  position: sticky; bottom: 0; z-index: 6; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; margin-top: 4px; border: 1px solid var(--border, #d9e5da); border-radius: 12px;
+  background: #fff;
+}
+.import-action-copy { color: var(--text-secondary, #53665d); font-size: 13px; }
+.import-grid-2 { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(280px,.8fr); gap: 14px; align-items: start; }
+.import-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+.import-metric { padding: 12px; border: 1px solid var(--border, #d9e5da); border-radius: 10px; background: #fff; }
+.import-metric span { display: block; color: var(--text-secondary, #53665d); font-size: 12px; }
+.import-metric strong { font-size: 20px; color: var(--text-primary, #172b24); }
+.dropzone {
+  display: grid; gap: 6px; justify-items: start; padding: 18px; border: 1.5px dashed #b8d2c0; border-radius: 12px;
+  background: var(--surface-muted, #f8fafb); cursor: pointer; transition: border-color .15s, background .15s;
+}
+.dropzone.dragover { border-color: var(--brand-green, #064734); background: #f1faef; }
+.dropzone input[type=file] { margin-top: 4px; }
+.import-collapsible { border: 1px solid var(--border, #d9e5da); border-radius: 10px; background: #fff; }
+.import-collapsible > summary { cursor: pointer; list-style: none; padding: 10px 12px; font-weight: 600; color: var(--text-primary, #172b24); }
+.import-collapsible > summary::-webkit-details-marker { display: none; }
+.import-collapsible-body { padding: 0 12px 12px; }
+.import-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.import-tab { padding: 7px 11px; border: 1px solid var(--border, #d9e5da); border-radius: 8px; background: #fff; font-size: 13px; font-weight: 600; color: var(--text-secondary, #53665d); }
+.import-tab.active { border-color: var(--brand-green, #064734); color: var(--brand-green, #064734); background: var(--accent-wash, #f3fcea); }
+.import-map-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 10px; }
+.import-map-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.import-map-table th, .import-map-table td { padding: 8px 10px; border-bottom: 1px solid #edf2ed; vertical-align: top; text-align: left; }
+.import-map-table th { font-size: 11px; font-weight: 500; color: var(--text-secondary, #53665d); background: #fafcf9; }
+.import-map-table select { width: 100%; min-width: 160px; padding: 6px 8px; border: 1px solid #d3e3d6; border-radius: 7px; background: #fff; }
+.req-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 500; background: #fff3e8; color: #9a3412; }
+.opt-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 500; background: #eef2f7; color: #475569; }
+.import-filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.import-filter-bar select, .import-filter-bar input { padding: 6px 8px; border: 1px solid #d3e3d6; border-radius: 7px; font-size: 13px; }
+.import-issue-guidance { color: var(--text-secondary, #53665d); font-size: 12px; }
+.import-issue-value { font-family: var(--font-mono, monospace); font-size: 12px; word-break: break-word; }
+.import-issues-drawer { border: 1px solid #dbe7dd; border-radius: 8px; padding: 0 10px; background: #fff; }
+.import-issues-drawer > summary { padding: 9px 2px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.import-issues-drawer[open] { padding-bottom: 10px; }
+.preview-scroll { overflow-x: auto; max-height: 320px; overflow-y: auto; }
+@media (max-width: 980px) {
+  .import-grid-2, .import-grid-3 { grid-template-columns: 1fr; }
+  .import-action-bar { flex-direction: column; align-items: stretch; }
+}
+
+.wizard-nav { position: sticky; bottom: 0; z-index: 6; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; margin-top: 8px; border: 1px solid var(--border, #d9e5da); border-radius: 12px; background: #fff; }
+.wizard-nav-copy { color: var(--text-secondary, #53665d); font-size: 13px; flex: 1; }
+
+.import-compact-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.import-compact-header .page-header { margin-bottom: 0; }
+.import-header-left { min-width: 0; flex: 1; }
+.import-header-right { flex: 0 0 auto; }
+.import-job-badge { display: flex; align-items: center; gap: 8px; }
+.import-main { width: 100%; min-width: 0; }
+.import-stepper-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--border, #d9e5da); }
+.import-stepper-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.import-step-hint { color: var(--text-tertiary, #75897c); font-size: 12px; }
+.import-panel { border: 1px solid var(--border, #d9e5da); border-radius: 12px; background: #fff; overflow: hidden; }
+.import-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 15px 18px; border-bottom: 1px solid var(--border, #d9e5da); }
+.import-panel-head h3 { margin: 0; color: var(--text-primary, #172b24); font-size: 15px; font-weight: 600; }
+.import-panel-head p { margin: 3px 0 0; color: var(--text-secondary, #53665d); font-size: 12px; }
+.import-panel-body { padding: 16px 18px; }
+.import-panel-compact .import-panel-body { padding-top: 14px; }
+.import-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.import-toolbar.compact { margin-top: 14px; }
+.sheet-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 10px; }
+.sheet-tab-dot { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border-radius: 50%; background: var(--accent, #064734); vertical-align: middle; }
+.confidence-chip { margin-left: 6px; }
+

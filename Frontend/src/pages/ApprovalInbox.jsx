@@ -114,7 +114,7 @@ export default function ApprovalInbox({ user, ability, onSessionExpired, onNavig
     <>
       <PageHeader
         title="Approval inbox"
-        subtitle="Payroll batches awaiting your decision, with a full transaction view before you approve."
+        subtitle="Payroll batches awaiting your decision, with a full transaction view before you approve"
         breadcrumbs={['Operations', 'Approval inbox']}
         actions={canList ? (
           <button type="button" className="btn ghost" onClick={batches.reload}>
@@ -132,7 +132,7 @@ export default function ApprovalInbox({ user, ability, onSessionExpired, onNavig
           <div className="panel-body">
             <Unavailable
               title="Payroll batch access is unavailable"
-              description="Your account does not have a payroll workflow permission that allows batch details to be read. Ask an administrator to grant access appropriate to your role."
+              description="Your role cannot open batch details. Ask an administrator for access."
             />
           </div>
         </section>
@@ -178,7 +178,7 @@ export default function ApprovalInbox({ user, ability, onSessionExpired, onNavig
                     ? 'No approved batches'
                     : 'No open batches'
               }
-              emptyDescription="No batches match this filter in your authorized scope."
+              emptyDescription="No batches match this filter in your authorized scope"
             />
           )}
         </section>
@@ -329,7 +329,7 @@ export default function ApprovalInbox({ user, ability, onSessionExpired, onNavig
       <ReasonDialog
         open={Boolean(action)}
         title="Reject batch"
-        description="The rejection reason is recorded against the batch and is required by the server."
+        description="The rejection reason is recorded against the batch"
         label="Rejection reason"
         confirmLabel="Reject batch"
         busy={busy}

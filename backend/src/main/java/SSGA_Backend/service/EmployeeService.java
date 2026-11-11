@@ -32,7 +32,6 @@ public class EmployeeService {
     private static final String EMPLOYEE_SELECT = """
             SELECT
                 e.id,
-                e.employee_code,
                 e.hrms_id,
                 e.name,
                 e.division_id,
@@ -128,19 +127,9 @@ public class EmployeeService {
     )
     public EmployeeResponse create(CreateEmployeeRequest request) {
 
-        String employeeCode = request.employeeCode() == null
-                ? null
-                : request.employeeCode().trim();
-
         String hrmsId = request.hrmsId() == null
                 ? ""
                 : request.hrmsId().trim();
-
-        if (employeeCode == null || employeeCode.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Employee code is required"
-            );
-        }
 
         if (request.name() == null || request.name().isBlank()) {
             throw new IllegalArgumentException(
@@ -172,7 +161,6 @@ public class EmployeeService {
 
             long id = insertEmployee(
                     connection,
-                    employeeCode,
                     finalHrmsId,
                     request
             );
@@ -180,7 +168,7 @@ public class EmployeeService {
             saveIdentities(connection, id, request);
             savePrimaryBank(connection, id, request);
 
-            audit(connection, "EMPLOYEE_CREATE", id, employeeCode, request.name());
+            audit(connection, "EMPLOYEE_CREATE", id, finalHrmsId, request.name());
 
             return id;
         });
@@ -379,7 +367,7 @@ public class EmployeeService {
 
         return new EmployeeSalaryResponse(
                 employee.get().id(),
-                employee.get().employeeCode(),
+                employee.get().hrmsId(),
                 employee.get().name(),
                 asOf.toString(),
                 basicPay,
@@ -576,7 +564,6 @@ public class EmployeeService {
 
         return new EmployeeResponse(
                 base.id(),
-                base.employeeCode(),
                 base.hrmsId(),
                 base.name(),
                 base.divisionId(),
@@ -666,7 +653,6 @@ public class EmployeeService {
 
     private long insertEmployee(
             Connection connection,
-            String employeeCode,
             String hrmsId,
             CreateEmployeeRequest request
     ) throws SQLException {
@@ -674,7 +660,7 @@ public class EmployeeService {
         String insertSql = """
                 INSERT INTO employees
                 (
-                    employee_code, hrms_id, division_id, name,
+                    hrms_id, division_id, name,
                     designation_id, grade_id, contact, place_of_work,
                     date_of_birth, date_of_joining, employment_type,
                     status, pay_scale, department, circle_id, ward_id,
@@ -682,35 +668,34 @@ public class EmployeeService {
                 )
                 VALUES
                 (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 RETURNING id
                 """;
 
         try (PreparedStatement statement = connection.prepareStatement(insertSql)) {
 
-            statement.setString(1, employeeCode);
-            statement.setString(2, hrmsId);
-            statement.setLong(3, request.divisionId());
-            statement.setString(4, request.name().trim());
-            setNullableLong(statement, 5, request.designationId());
-            setNullableLong(statement, 6, request.gradeId());
-            setNullableString(statement, 7, request.contact());
-            setNullableString(statement, 8, request.placeOfWork());
-            setNullableDate(statement, 9, request.dateOfBirth());
-            setNullableDate(statement, 10, request.dateOfJoining());
-            setNullableString(statement, 11, request.employmentType());
+            statement.setString(1, hrmsId);
+            statement.setLong(2, request.divisionId());
+            statement.setString(3, request.name().trim());
+            setNullableLong(statement, 4, request.designationId());
+            setNullableLong(statement, 5, request.gradeId());
+            setNullableString(statement, 6, request.contact());
+            setNullableString(statement, 7, request.placeOfWork());
+            setNullableDate(statement, 8, request.dateOfBirth());
+            setNullableDate(statement, 9, request.dateOfJoining());
+            setNullableString(statement, 10, request.employmentType());
 
             String status = request.status() == null || request.status().isBlank()
                     ? "ACTIVE"
                     : request.status().trim();
 
-            statement.setString(12, status);
-            setNullableString(statement, 13, request.payScale());
-            setNullableString(statement, 14, request.department());
-            setNullableLong(statement, 15, positiveOrNull(request.circleId()));
-            setNullableLong(statement, 16, positiveOrNull(request.wardId()));
-            setNullableLong(statement, 17, positiveOrNull(request.payrollUnitId()));
+            statement.setString(11, status);
+            setNullableString(statement, 12, request.payScale());
+            setNullableString(statement, 13, request.department());
+            setNullableLong(statement, 14, positiveOrNull(request.circleId()));
+            setNullableLong(statement, 15, positiveOrNull(request.wardId()));
+            setNullableLong(statement, 16, positiveOrNull(request.payrollUnitId()));
 
             try (ResultSet rs = statement.executeQuery()) {
 
@@ -724,7 +709,7 @@ public class EmployeeService {
             } catch (SQLException e) {
                 throw translateDuplicate(
                         e,
-                        "An employee with this employee code or HRMS id already exists."
+                        "An employee with this HRMS id already exists."
                 );
             }
         }
@@ -1261,7 +1246,6 @@ public class EmployeeService {
 
         return new EmployeeResponse(
                 rs.getLong("id"),
-                rs.getString("employee_code"),
                 rs.getString("hrms_id"),
                 rs.getString("name"),
                 rs.getLong("division_id"),

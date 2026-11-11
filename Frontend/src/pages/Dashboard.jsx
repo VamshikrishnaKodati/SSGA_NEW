@@ -31,35 +31,35 @@ const ACCOUNT_PREVIEW_LIMIT = 6
 const WORKQUEUE = {
   'ROLE_PAYROLL_OPERATOR': {
     title: 'My tasks - prepare payroll',
-    description: 'Draft, rejected or reopened batches need verification and submission.',
+    description: 'Draft, rejected or reopened batches need verification and submission',
     statuses: ['DRAFT', 'REJECTED', 'REOPENED'],
     action: 'payroll',
     actionLabel: 'Open payroll processing',
   },
   'ROLE_APPROVING_AUTHORITY': {
     title: 'My tasks - approvals',
-    description: 'Submitted batches awaiting approval or rejection.',
+    description: 'Submitted batches awaiting approval or rejection',
     statuses: ['SUBMITTED'],
     action: 'approvals',
     actionLabel: 'Open approval inbox',
   },
   'ROLE_ORG_ADMIN': {
     title: 'Payroll oversight',
-    description: 'Batches that are not yet finalized across your scope.',
+    description: 'Batches that are not yet finalized across your scope',
     statuses: ['DRAFT', 'SUBMITTED', 'APPROVED', 'REOPENED', 'REJECTED'],
     action: 'payroll',
     actionLabel: 'Open payroll processing',
   },
   'ROLE_WING_ADMIN': {
     title: 'Payroll attention',
-    description: 'Batches in your wing that are not yet finalized.',
+    description: 'Batches in your wing that are not yet finalized',
     statuses: ['DRAFT', 'SUBMITTED', 'APPROVED', 'REOPENED', 'REJECTED'],
     action: 'payroll',
     actionLabel: 'Open payroll processing',
   },
   'ROLE_DIVISION_ADMIN': {
     title: 'Payroll attention',
-    description: 'Batches in your division that are not yet finalized.',
+    description: 'Batches in your division that are not yet finalized',
     statuses: ['DRAFT', 'SUBMITTED', 'APPROVED', 'REOPENED', 'REJECTED'],
     action: 'payroll',
     actionLabel: 'Open payroll processing',
@@ -409,7 +409,7 @@ export default function Dashboard({ user, ability, onNavigate, onSessionExpired 
               rowKey={(row) => row.id}
               onRowClick={() => onNavigate('employees')}
               emptyTitle="No account details available"
-              emptyDescription="Employee bank details could not be read for your scope."
+              emptyDescription="Employee bank details could not be read for your scope"
             />
 
             {accountRows.length > 0 && (
@@ -565,7 +565,7 @@ export default function Dashboard({ user, ability, onNavigate, onSessionExpired 
             rows={divisionRows}
             rowKey={(row) => row.divisionId}
             emptyTitle="No finalized payroll"
-            emptyDescription="No finalized payroll batches were found for your scope."
+            emptyDescription="No finalized payroll batches were found for your scope"
           />
         </section>
       )}
@@ -736,7 +736,7 @@ function BatchesTable({ batches, onOpen, showEmployees }) {
       rowKey={(row) => row.batchId}
       onRowClick={onOpen}
       emptyTitle="Nothing pending"
-      emptyDescription="No batches currently need action in your scope."
+      emptyDescription="No batches currently need action in your scope"
     />
   )
 }

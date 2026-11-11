@@ -7,7 +7,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/ssga_new_db
     username: ssga_app
-    password: ${SSGA_DB_PASSWORD}
+    password: 2706
 
   jpa:
     hibernate:
@@ -15,7 +15,10 @@ spring:
     open-in-view: false
 
 server:
-  port: 8080
+  port: 8081
+  error:
+    include-message: always
+    include-binding-errors: always
 
 logging:
   level:

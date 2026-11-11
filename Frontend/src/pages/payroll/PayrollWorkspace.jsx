@@ -7,7 +7,6 @@ import {
   reportApi,
   statementApi,
 } from '../../services/api.js'
-import { primaryRoleLabel } from '../../lib/permissions.js'
 import {
   canFinalizePayrollBatch,
   filterScopedDivisions,
@@ -16,6 +15,7 @@ import {
   payrollScopeIsProcessable,
   payrollWorkflowSteps,
 } from '../../lib/payrollWorkspace.js'
+import { EmptyState } from '../../components/ui.jsx'
 
 const MONTHS = [
   'January',
@@ -68,7 +68,7 @@ function StatusChip({ status }) {
   return (
     <span
       className={`status-chip ${String(status || '').toLowerCase().replaceAll('_', '-')}`}
-      title={status ? `Backend status: ${status}` : undefined}
+      title={status ? payrollBatchStatusLabel(status) : undefined}
     >
       {payrollBatchStatusLabel(status)}
     </span>
@@ -150,14 +150,6 @@ export default function PayrollWorkspace({ user, onSessionExpired, onNavigate })
 
   return (
     <section className="account-panel">
-      <div className="section-heading">
-        <div>
-          <h3>Payroll Workspace</h3>
-          <p>Run monthly payroll from period selection to finalization and salary statements.</p>
-        </div>
-        <span className="status-pill">HMWSSB · SSGA</span>
-      </div>
-
       <nav className="module-tabs" role="tablist" aria-label="Payroll modules">
         {tabs.map((tab) => (
           <button
@@ -804,7 +796,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
     setMessage('')
 
     if (!canGenerate) {
-      setError('Batch generation requires the payroll.prepare permission.')
+      setError('Your role cannot generate batches.')
       return
     }
     if (!processableScope) {
@@ -916,7 +908,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
           disabled={busy || readinessLoading || readinessError !== '' || readiness?.readyToVerify !== true}
           title={readiness?.readyToVerify === true
             ? 'Verify transactions'
-            : 'Verification requires confirmed backend readiness.'}
+            : 'Verification requires confirmed readiness.'}
           onClick={() => runAction(() => payrollApi.verify(detail.batchId), detail.batchId)}
         >
           Verify transactions
@@ -933,7 +925,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
           disabled={busy || readinessLoading || readinessError !== '' || readiness?.readyToSubmit !== true}
           title={readiness?.readyToSubmit === true
             ? 'Submit the verified batch for approval'
-            : 'Submission requires confirmed backend readiness and verified transactions.'}
+            : 'Submission requires confirmed readiness and verified transactions.'}
           onClick={() => runAction(() => payrollApi.submit(detail.batchId), detail.batchId)}
         >
           Submit for approval
@@ -1000,7 +992,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
             }
           }}
         >
-          {approvalStatusVisible ? 'Hide Approval Status' : 'View Approval Status'}
+          {approvalStatusVisible ? 'Hide approval status' : 'View approval status'}
         </button>,
       )
     }
@@ -1092,17 +1084,17 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
       }
     } else if (['SUBMITTED', 'UNDER_REVIEW'].includes(selected.status)) {
       nextAction = isMaker
-        ? 'View Approval Status'
+        ? 'View approval status'
         : permissions.can('payroll.approve')
-          ? 'Review in Approval Inbox'
+          ? 'Review in approval inbox'
           : 'Awaiting an independent authorized reviewer.'
     } else if (selected.status === 'APPROVED') {
       nextAction = finalizationEligibility?.eligible
-        ? 'Finalize & Lock'
+        ? 'Finalize and lock'
         : finalizationEligibility?.reason
           || finalizationEligibilityError
           || (canFinalize
-            ? 'Checking finalization eligibility with the backend.'
+            ? 'Checking finalization eligibility.'
             : 'Awaiting an authorized finalizer.')
     } else if (selected.status === 'FINALIZED') {
       nextAction = canViewStatements
@@ -1146,7 +1138,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
               {selected.checkerName
                 || (selected.checkerId
                   ? `User ${selected.checkerId}`
-                  : 'None recorded; review follows backend permission and division scope')}
+                  : 'None recorded; access follows your role and division scope')}
             </strong>
           </div>
           <div className="payroll-next-action">
@@ -1157,7 +1149,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
 
         {isMaker && ['SUBMITTED', 'UNDER_REVIEW'].includes(selected.status) && (
           <p className="muted-text">
-            You created this batch. The backend enforces maker-checker separation; you cannot approve or finalize it.
+            You created this batch. Maker-checker separation prevents you from approving or finalizing it.
           </p>
         )}
 
@@ -1503,7 +1495,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
           ) : !batchesLoaded ? (
             <div className="payroll-stage-empty">
               <strong>Batches have not been loaded</strong>
-              <p>Select the authorized period and scope, then choose Load Batches.</p>
+              <p>Select the authorized period and scope, then choose Load batches.</p>
             </div>
           ) : searchedBatches.length === 0 ? (
             <div className="payroll-stage-empty">
@@ -1511,7 +1503,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
               <p>
                 {batches.length
                   ? 'Clear or adjust the search to see batches.'
-                  : 'If this period is OPEN and the division is active, continue to Generate Salary.'}
+                  : 'If this period is open and the division is active, continue from Generate salary.'}
               </p>
             </div>
           ) : (
@@ -1593,7 +1585,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
           {renderSummary()}
           {selected ? renderSelectedBatch() : (
             <p className="muted-text">
-              The backend computes transaction readiness after a batch is generated or opened. Scope counts above use the selected period's effective salary date.
+              Transaction readiness is calculated after a batch is generated or opened. Scope counts above use the selected period's effective salary date.
             </p>
           )}
         </div>
@@ -1619,7 +1611,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
           ) : !batchesLoaded ? (
             <p className="muted-text">Load batches first to verify that this period and division do not already have a monthly batch.</p>
           ) : !canGenerate ? (
-            <p className="muted-text">Batch generation requires payroll.prepare.</p>
+            <p className="muted-text">Your role cannot generate batches.</p>
           ) : (
             <form className="payroll-generate-form" onSubmit={handleGenerate}>
               <div>
@@ -1660,12 +1652,12 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
           {renderSelectedBatch()}
           {selected && ['SUBMITTED', 'UNDER_REVIEW'].includes(selected.status) && (
             <p className="muted-text">
-              Approval is handled in the Approval Inbox; this workspace does not approve or reject payroll.
+              Approval is handled in the approval inbox; this workspace does not approve or reject payroll.
             </p>
           )}
           {permissions.can('payroll.approve') && onNavigate && (
             <button type="button" className="module-button ghost" onClick={() => onNavigate('approvals')}>
-              Open Approval Inbox
+              Open approval inbox
             </button>
           )}
         </div>
@@ -1679,7 +1671,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
           {renderSelectedBatch()}
           {selected?.status === 'APPROVED' && !finalizationEligibility?.eligible && (
             <p className="muted-text">
-              Finalization is available only when the backend confirms approval, an unchanged batch version, readiness, and your permission to finalize.
+              Finalization requires approval, an unchanged batch version, readiness and your permission to finalize.
             </p>
           )}
         </div>
@@ -1699,7 +1691,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
           ) : canStatement ? (
           <p className="muted-text">Generate statements for this finalized batch from the batch detail above.</p>
         ) : (
-          <p className="muted-text">Statement generation requires statement.generate or payroll.finalize.</p>
+          <p className="muted-text">Your role cannot generate statements for this batch.</p>
         )}
       </div>
     )
@@ -1710,25 +1702,6 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
 
   return (
     <div className="module-body payroll-workspace">
-      <div className="payroll-workspace-heading">
-        <span className={`payroll-period-pill ${periodStatus?.toLowerCase() || 'unselected'}`}>
-          Period: {selectedPeriod?.label || 'No period selected'}
-        </span>
-      </div>
-
-      <div className="payroll-context-grid">
-        <div><span>Organization</span><strong>{selectedPeriod?.organizationName || 'Select a payroll period'}</strong></div>
-        <div><span>Role</span><strong>{primaryRoleLabel(user)}</strong></div>
-        <div>
-          <span>Authorized scope</span>
-          <strong>
-            {selectedDivision
-              ? `${selectedDivision.wingName || 'Wing'} · ${selectedDivision.name}`
-              : `${organizationDivisions.length} accessible division${organizationDivisions.length === 1 ? '' : 's'}`}
-          </strong>
-        </div>
-      </div>
-
       <ol className="payroll-workflow-stepper" aria-label="Payroll workflow">
         {workflow.map((step) => (
           <li key={step.number} className={`payroll-workflow-step ${step.state}${activeStage === step.number ? ' active' : ''}`}>
@@ -1741,7 +1714,6 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
             >
               <span className="payroll-step-number">{step.number}</span>
               <span className="payroll-step-label">{step.title}</span>
-              <small>{step.state}</small>
             </button>
           </li>
         ))}
@@ -1750,8 +1722,8 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
       <section className="payroll-selection-card" aria-labelledby="payroll-scope-title">
         <div className="payroll-card-heading">
           <div>
-            <h3 id="payroll-scope-title">Period &amp; organizational scope</h3>
-            <p>Select an existing period and a division within your authorized scope.</p>
+            <h3 id="payroll-scope-title">Payroll period</h3>
+            <p>Choose the payroll period and organization scope.</p>
           </div>
           <StatusChip status={periodStatus || 'UNSELECTED'} />
         </div>
@@ -1774,7 +1746,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
                   <option value="">Select an existing period</option>
                   {periods.map((period) => (
                     <option key={period.id} value={period.id}>
-                      {period.label} · {period.organizationName} · {period.status}
+                      {period.label} · {period.organizationName}
                     </option>
                   ))}
                 </select>
@@ -1825,7 +1797,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
                 disabled={loading || referenceLoading || !validScope || !!selected}
                 title={!validScope ? 'Select a period and authorized division first' : 'Load batches and the selected scope summary'}
               >
-                {loading ? 'Loading…' : selected ? 'Batch selected' : 'Load Batches'}
+                {loading ? 'Loading…' : selected ? 'Batch selected' : 'Load batches'}
               </button>
             </div>
 
@@ -1857,7 +1829,6 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
       <section className="payroll-stage-card" aria-labelledby="payroll-stage-title">
         <div className="payroll-stage-card-heading">
           <div>
-            <span>STEP {activeStage} OF 8</span>
             <h3 id="payroll-stage-title">{workflow[activeStage - 1]?.title}</h3>
           </div>
           {activeStage === 3 && duplicateBatch && (
@@ -1976,7 +1947,11 @@ function StatementsPanel({ permissions, onSessionExpired }) {
       {loading ? (
         <p className="muted-text">Loading statements…</p>
       ) : statements.length === 0 ? (
-        <p className="muted-text">No salary statements are available yet.</p>
+        <EmptyState
+          icon="file"
+          title="No statements issued yet"
+          description="Statements appear here after a finalized payroll batch generates them"
+        />
       ) : (
         <div className="table-wrap">
           <table className="data-table">

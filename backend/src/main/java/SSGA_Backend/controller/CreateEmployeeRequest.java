@@ -10,7 +10,6 @@ import java.time.LocalDate;
  * are stored in {@code employee_bank_accounts}. All of these are optional.
  */
 public record CreateEmployeeRequest(
-        String employeeCode,
         String hrmsId,
         String name,
         long divisionId,
