@@ -702,6 +702,78 @@
   margin-top: 0;
 }
 
+/* ------------------------------------------------------------ charts --- */
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.chart-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chart-head h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--grey-900);
+}
+
+.chart-note {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.chart-svg {
+  display: block;
+  margin: 4px auto 2px;
+  overflow: visible;
+}
+
+.chart-foot {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--grey-500);
+  text-align: center;
+}
+
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 90px;
+  color: var(--grey-500);
+  font-size: 12px;
+  text-align: center;
+}
+
+.chart-svg text {
+  font-family: var(--font-sans);
+}
+
+.chart-svg polyline,
+.chart-svg path {
+  overflow-clip-box: visible;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

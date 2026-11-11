@@ -223,6 +223,7 @@ public class PayrollBatchService {
                 period.label(),
                 divisionId,
                 division.name(),
+                '',
                 runType,
                 1,
                 "DRAFT",
@@ -232,6 +233,7 @@ public class PayrollBatchService {
                 grossTotal,
                 deductionTotal,
                 netTotal,
+                null,
                 totals,
                 "DRAFT batch generated with " + employeeCount + " employees.",
                 1L
@@ -247,14 +249,16 @@ public class PayrollBatchService {
 
         String sql = """
                 SELECT b.id, b.period_id, p.period_year, p.period_month,
-                       b.division_id, d.name AS division_name,
+                       b.division_id, d.name AS division_name, w.name AS wing_name,
                        b.run_type, b.run_no, b.status, b.maker_id, b.checker_id,
                        b.employee_count,
                        b.gross_total, b.deduction_total, b.net_total,
+                       b.created_at,
                        b.version
                 FROM public.payroll_batches b
                 JOIN public.payroll_periods p ON p.id = b.period_id
                 LEFT JOIN public.divisions d ON d.id = b.division_id
+                LEFT JOIN public.wings w ON w.id = b.wing_id
                 """;
 
         List<PayrollBatchResponse> rows = new ArrayList<>();
@@ -267,6 +271,7 @@ public class PayrollBatchService {
                                 rs.getInt("period_month")),
                         rs.getLong("division_id"),
                         rs.getString("division_name"),
+                        rs.getString("wing_name"),
                         rs.getString("run_type"),
                         rs.getInt("run_no"),
                         rs.getString("status"),
@@ -276,6 +281,7 @@ public class PayrollBatchService {
                         rs.getBigDecimal("gross_total"),
                         rs.getBigDecimal("deduction_total"),
                         rs.getBigDecimal("net_total"),
+                        rs.getObject("created_at", OffsetDateTime.class),
                         List.of(),
                         null,
                         rs.getLong("version")

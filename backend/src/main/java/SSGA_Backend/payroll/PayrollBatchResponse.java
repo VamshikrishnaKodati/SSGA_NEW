@@ -1,6 +1,7 @@
 package SSGA_Backend.payroll;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 public record PayrollBatchResponse(
@@ -9,6 +10,7 @@ public record PayrollBatchResponse(
         String periodLabel,
         long divisionId,
         String divisionName,
+        String wingName,
         String runType,
         int runNo,
         String status,
@@ -18,6 +20,7 @@ public record PayrollBatchResponse(
         BigDecimal grossTotal,
         BigDecimal deductionTotal,
         BigDecimal netTotal,
+        OffsetDateTime createdAt,
         List<EmployeeTotals> employees,
         String message,
         long version

@@ -159,6 +159,7 @@ async function fetchDashboardData({ ability, onSessionExpired }) {
 export default function Dashboard({ user, ability, onNavigate, onSessionExpired }) {
   const [state, setState] = useState({ loading: true, errors: [], data: null })
   const [reloadKey, setReloadKey] = useState(0)
+  const [filters, setFilters] = useState({ period: '', wing: '', division: '' })
 
   useEffect(() => {
     let cancelled = false
@@ -278,6 +279,62 @@ export default function Dashboard({ user, ability, onNavigate, onSessionExpired 
 
   const hasAnySection = canEmployees || canPayroll || canReports || canPrepare
 
+  const wingOptions = [...new Set(employees.map((e) => e.wingName).filter(Boolean))].sort()
+  const divisionOptions = [...new Set(divisions.map((d) => d.name).filter(Boolean))].sort()
+  const orderedPeriodsForFilter = [...periods].sort(
+    (left, right) => (left.year * 12 + left.month) - (right.year * 12 + right.month),
+  )
+  const periodOrder = new Map(orderedPeriodsForFilter.map((p, i) => [p.label, i]))
+
+  const filteredEmployees = employees.filter((e) => {
+    if (filters.wing && e.wingName !== filters.wing) return false
+    if (filters.division && e.divisionName !== filters.division) return false
+    return true
+  })
+  const filteredBatches = batches.filter((b) => {
+    if (filters.period && b.periodId !== Number(filters.period)) return false
+    if (filters.wing && b.wingName !== filters.wing) return false
+    if (filters.division && b.divisionName !== filters.division) return false
+    return true
+  })
+
+  const wingMap = {}
+  filteredEmployees.forEach((e) => {
+    const w = e.wingName || 'Unassigned'
+    wingMap[w] = (wingMap[w] || 0) + 1
+  })
+  const wingChart = Object.entries(wingMap).sort((a, b) => b[1] - a[1])
+
+  const activeFiltered = filteredEmployees.filter((e) => e.status === 'ACTIVE').length
+  const inactiveFiltered = filteredEmployees.length - activeFiltered
+
+  const periodTotals = {}
+  filteredBatches.forEach((b) => {
+    const t = periodTotals[b.periodLabel] || { net: 0, ded: 0 }
+    t.net += Number(b.netTotal || 0)
+    t.ded += Number(b.deductionTotal || 0)
+    periodTotals[b.periodLabel] = t
+  })
+  const monthlyChart = Object.entries(periodTotals)
+    .map(([label, t]) => ({ label, net: t.net, ded: t.ded }))
+    .sort((a, b) => (periodOrder.get(a.label) || 0) - (periodOrder.get(b.label) || 0))
+    .slice(-6)
+
+  const statusMap = {}
+  filteredBatches.forEach((b) => { statusMap[b.status] = (statusMap[b.status] || 0) + 1 })
+  const statusChart = Object.entries(statusMap)
+
+  const now = new Date()
+  const ageBuckets = { '0-2 days': 0, '3-5 days': 0, '>5 days': 0 }
+  filteredBatches.filter((b) => b.status === 'SUBMITTED').forEach((b) => {
+    const created = b.createdAt ? new Date(b.createdAt) : null
+    const days = created ? (now - created) / 86400000 : 0
+    if (days <= 2) ageBuckets['0-2 days']++
+    else if (days <= 5) ageBuckets['3-5 days']++
+    else ageBuckets['>5 days']++
+  })
+  const ageChart = Object.entries(ageBuckets)
+
   return (
     <>
       <PageHeader
@@ -295,6 +352,133 @@ export default function Dashboard({ user, ability, onNavigate, onSessionExpired 
           {state.errors[0]}{state.errors.length > 1 ? ` (+${state.errors.length - 1} more)` : ''}
         </Alert>
       )}
+
+      <div className="toolbar section-gap">
+        <label className="field">
+          <span>Period</span>
+          <select
+            value={filters.period}
+            onChange={(event) => setFilters({ ...filters, period: event.target.value })}
+          >
+            <option value="">All periods</option>
+            {orderedPeriodsForFilter.map((period) => (
+              <option key={period.id} value={period.id}>{period.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Wing</span>
+          <select
+            value={filters.wing}
+            onChange={(event) => setFilters({ ...filters, wing: event.target.value })}
+          >
+            <option value="">All wings</option>
+            {wingOptions.map((wing) => (
+              <option key={wing} value={wing}>{wing}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Division</span>
+          <select
+            value={filters.division}
+            onChange={(event) => setFilters({ ...filters, division: event.target.value })}
+          >
+            <option value="">All divisions</option>
+            {divisionOptions.map((division) => (
+              <option key={division} value={division}>{division}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="btn subtle sm"
+          onClick={() => setFilters({ period: '', wing: '', division: '' })}
+        >
+          Reset filters
+        </button>
+      </div>
+
+      <section className="panel section-gap" aria-label="Organization overview charts">
+        <SectionHead
+          icon="chart"
+          title="Organization overview"
+          description="Live figures from your authorized scope, scoped by your role and the Wing/Division filters above."
+        />
+        <div className="chart-grid">
+          {canEmployees && (
+            <>
+              <div className="chart-card">
+                <div className="chart-head">
+                  <h4>Employees by Wing</h4>
+                  <span className="chart-note">Horizontal bar</span>
+                </div>
+                <WingBarChart data={wingChart} total={filteredEmployees.length} />
+              </div>
+              <div className="chart-card">
+                <div className="chart-head">
+                  <h4>Active vs inactive</h4>
+                  <span className="chart-note">Donut · employee status</span>
+                </div>
+                <DonutChart
+                  title="Employee status"
+                  value={formatNumber(filteredEmployees.length)}
+                  segments={[
+                    { label: 'Active', value: activeFiltered, color: '#064734' },
+                    { label: 'Inactive', value: inactiveFiltered, color: '#74859a' },
+                  ].filter((s) => s.value > 0)}
+                  size={150}
+                />
+              </div>
+              <div className="chart-card">
+                <div className="chart-head">
+                  <h4>Monthly net salary trend</h4>
+                  <span className="chart-note">Line · approved/finalized batches</span>
+                </div>
+                <LineChart data={monthlyChart} title="Monthly net salary trend" />
+              </div>
+            </>
+          )}
+          {canPayroll && (
+            <>
+              <div className="chart-card">
+                <div className="chart-head">
+                  <h4>Earnings vs deductions</h4>
+                  <span className="chart-note">Stacked column · net vs deductions</span>
+                </div>
+                <StackedBarChart data={monthlyChart} title="Earnings vs deductions" />
+              </div>
+              <div className="chart-card">
+                <div className="chart-head">
+                  <h4>Payroll batch status</h4>
+                  <span className="chart-note">Donut · batches in scope</span>
+                </div>
+                <DonutChart
+                  title="Batch status"
+                  value={formatNumber(filteredBatches.length)}
+                  segments={statusChart.map(([status, count]) => ({
+                    label: humanizeStatus(status),
+                    value: count,
+                    color: CHART_COLORS[statusChart.findIndex(([s]) => s === status) % CHART_COLORS.length],
+                  }))}
+                  size={150}
+                />
+              </div>
+              <div className="chart-card">
+                <div className="chart-head">
+                  <h4>Pending approvals by age</h4>
+                  <span className="chart-note">Bar · submitted batches waiting</span>
+                </div>
+                <VerticalBarChart
+                  data={ageChart.map(([label, count]) => ({ label, count }))}
+                  title="Pending approvals by age"
+                  valueLabel="Days since submission"
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </section>
 
       {canEmployees && (
         <section className="panel section-gap" aria-label="Organization metrics">
@@ -738,5 +922,189 @@ function BatchesTable({ batches, onOpen, showEmployees }) {
       emptyTitle="Nothing pending"
       emptyDescription="No batches currently need action in your scope"
     />
+  )
+}
+
+const CHART_COLORS = ['#064734', '#0f8360', '#1f5c9e', '#2e7d5b', '#9a6208', '#b93a34', '#74859a', '#51647c']
+
+function polarToCartesian(cx, cy, r, angle) {
+  const rad = ((angle - 90) * Math.PI) / 180
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
+}
+
+function arcPath(cx, cy, r, startAngle, endAngle) {
+  const start = polarToCartesian(cx, cy, r, endAngle)
+  const end = polarToCartesian(cx, cy, r, startAngle)
+  const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1
+  return [`M${start.x},${start.y}`, `A${r},${r} 0 ${largeArcFlag} 0 ${end.x},${end.y}`, `L${cx},${cy}`, 'Z'].join(' ')
+}
+
+function DonutChart({ title, value, segments, size = 150 }) {
+  const total = segments.reduce((sum, seg) => sum + seg.value, 0)
+  const cx = size / 2
+  const cy = size / 2
+  const r = size / 2 * 0.8
+
+  const slices = segments.map((seg, i) => {
+    if (!seg.value || total === 0) return null
+    const prior = segments.slice(0, i).reduce((sum, s) => sum + s.value, 0)
+    const start = (prior / total) * 360
+    const sweep = (seg.value / total) * 360
+    const end = start + sweep
+    const d = arcPath(cx, cy, r, start, end)
+    return <path key={i} d={d} fill={seg.color || CHART_COLORS[i % CHART_COLORS.length]} />
+  })
+
+  return (
+    <svg className="chart-svg" width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={title}>
+      {slices}
+      <circle cx={cx} cy={cy} r={size / 2 * 0.6} fill="#fff" stroke="#e1e8f0" strokeWidth="2" />
+      <text x={cx} y={cy - 7} textAnchor="middle" fontSize="13" fontWeight="600" fill="#1b3a57">{value}</text>
+      <text x={cx} y={cy + 12} textAnchor="middle" fontSize="10" fill="#53665d">{total}</text>
+    </svg>
+  )
+}
+
+function WingBarChart({ data, total }) {
+  const max = Math.max(1, ...data.map(([, v]) => v))
+  const barH = 24
+  const gap = 8
+  const top = 22
+  const left = 110
+  const width = 300
+  const height = Math.max(110, data.length * (barH + gap) + 56)
+
+  return (
+    <div className="chart-card">
+      <div className="chart-head">
+        <h4>Employees by Wing</h4>
+        <span className="chart-note">Horizontal bar</span>
+      </div>
+      <svg className="chart-svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Employees by Wing">
+        {data.map(([wing, count], i) => {
+          const y = top + i * (barH + gap)
+          const barW = (count / max) * (width - left - 44)
+          return (
+            <g key={wing}>
+              <text x={left - 8} y={y + barH / 2 + 4} textAnchor="end" fontSize="11" fill="#53665d">{wing}</text>
+              <rect x={left} y={y} width={barW} height={barH} fill="#064734" rx="3" />
+              <text x={left + barW + 6} y={y + barH / 2 + 4} fontSize="11" fill="#1b3a57" fontWeight="600">{count}</text>
+            </g>
+          )
+        })}
+      </svg>
+      <div className="chart-foot">Total employees in scope: {formatNumber(total)}</div>
+    </div>
+  )
+}
+
+function LineChart({ data, title }) {
+  if (!data.length) return <EmptyChart title={title} />
+  const width = 320
+  const height = 170
+  const pad = 38
+  const max = Math.max(1, ...data.map((d) => d.net))
+  const points = data.map((d, i) => {
+    const x = pad + ((data.length === 1 ? 0 : i / (data.length - 1)) * (width - 2 * pad))
+    const y = height - pad - (d.net / max) * (height - 2 * pad)
+    return `${x},${y}`
+  })
+
+  return (
+    <div className="chart-card">
+      <div className="chart-head">
+        <h4>{title}</h4>
+        <span className="chart-note">Line · net salary by period</span>
+      </div>
+      <svg className="chart-svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title}>
+        <polyline points={points.join(' ')} fill="none" stroke="#064734" strokeWidth="2" />
+        {data.map((d, i) => {
+          const x = pad + ((data.length === 1 ? 0 : i / (data.length - 1)) * (width - 2 * pad))
+          const y = height - pad - (d.net / max) * (height - 2 * pad)
+          return <circle key={i} cx={x} cy={y} r={3} fill="#064734" />
+        })}
+        {data.map((d, i) => {
+          const x = pad + ((data.length === 1 ? 0 : i / (data.length - 1)) * (width - 2 * pad))
+          return <text key={i} x={x} y={height - 6} textAnchor="middle" fontSize="9" fill="#53665d">{d.label}</text>
+        })}
+        <text x={pad} y={pad - 10} fontSize="10" fill="#74859a">{formatCompactCurrency(max)}</text>
+      </svg>
+    </div>
+  )
+}
+
+function StackedBarChart({ data, title }) {
+  if (!data.length) return <EmptyChart title={title} />
+  const width = 320
+  const height = 160
+  const pad = 36
+  const barW = 30
+  const gap = 14
+  const max = Math.max(1, ...data.map((d) => d.net + d.ded))
+
+  return (
+    <div className="chart-card">
+      <div className="chart-head">
+        <h4>{title}</h4>
+        <span className="chart-note">Stacked column · net vs deductions</span>
+      </div>
+      <svg className="chart-svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title}>
+        {data.map((d, i) => {
+          const x = pad + i * (barW + gap)
+          const totalH = ((d.net + d.ded) / max) * (height - pad - 20)
+          const netH = (d.net / max) * (height - pad - 20)
+          const y = height - pad - totalH
+          return (
+            <g key={i}>
+              <rect x={x} y={y + netH} width={barW} height={Math.max(0, totalH - netH)} fill="#9a6208" />
+              <rect x={x} y={y} width={barW} height={netH} fill="#064734" />
+              <text x={x + barW / 2} y={height - 8} textAnchor="middle" fontSize="9" fill="#53665d">{d.label}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+function VerticalBarChart({ data, title, valueLabel }) {
+  if (!data.length) return <EmptyChart title={title} />
+  const width = 320
+  const height = 160
+  const pad = 36
+  const barW = 44
+  const gap = 18
+  const max = Math.max(1, ...data.map((d) => d.count))
+
+  return (
+    <div className="chart-card">
+      <div className="chart-head">
+        <h4>{title}</h4>
+        <span className="chart-note">{valueLabel}</span>
+      </div>
+      <svg className="chart-svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title}>
+        {data.map((d, i) => {
+          const x = pad + i * (barW + gap)
+          const h = (d.count / max) * (height - pad - 22)
+          const y = height - pad - h
+          return (
+            <g key={i}>
+              <rect x={x} y={y} width={barW} height={h} fill="#1f5c9e" rx="2" />
+              <text x={x + barW / 2} y={y - 8} textAnchor="middle" fontSize="10" fill="#1b3a57" fontWeight="600">{d.count}</text>
+              <text x={x + barW / 2} y={height - 8} textAnchor="middle" fontSize="9" fill="#53665d">{d.label}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+function EmptyChart({ title }) {
+  return (
+    <div className="chart-card">
+      <div className="chart-head"><h4>{title}</h4></div>
+      <div className="chart-empty">No data available for the current scope and filters.</div>
+    </div>
   )
 }
