@@ -309,7 +309,9 @@ export default function Dashboard({ user, ability, onNavigate, onSessionExpired 
   const inactiveFiltered = filteredEmployees.length - activeFiltered
 
   const periodTotals = {}
-  filteredBatches.forEach((b) => {
+  filteredBatches
+    .filter((b) => b.status === 'APPROVED' || b.status === 'FINALIZED')
+    .forEach((b) => {
     const t = periodTotals[b.periodLabel] || { net: 0, ded: 0 }
     t.net += Number(b.netTotal || 0)
     t.ded += Number(b.deductionTotal || 0)
