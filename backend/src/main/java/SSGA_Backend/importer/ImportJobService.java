@@ -319,17 +319,28 @@ public class ImportJobService {
         return jdbcTemplate.query(
                 """
                 SELECT
-                    id,
-                    status,
-                    source_type,
-                    file_name,
-                    total_rows,
-                    valid_rows,
-                    error_rows,
-                    warning_rows,
-                    uploaded_at::text AS uploaded_at
-                FROM public.import_jobs
-                ORDER BY uploaded_at DESC
+                    j.id,
+                    j.status,
+                    j.source_type,
+                    j.file_name,
+                    j.total_rows,
+                    j.valid_rows,
+                    j.error_rows,
+                    j.warning_rows,
+                    j.uploaded_at::text AS uploaded_at,
+                    j.uploaded_by,
+                    j.submitted_by,
+                    j.submitted_at::text AS submitted_at,
+                    (
+                        SELECT string_agg(f.display_name, ', ' ORDER BY f.display_name)
+                        FROM public.import_job_assignments a
+                        JOIN app.find_assignable_users() f ON f.user_id = a.user_id
+                        WHERE a.import_job_id = j.id
+                          AND a.assignment_role = 'APPROVER'
+                          AND a.is_active
+                    ) AS approvers
+                FROM public.import_jobs j
+                ORDER BY j.uploaded_at DESC
                 LIMIT 100
                 """,
                 (rs, rowNum) -> new ImportJobSummaryResponse(
@@ -341,7 +352,11 @@ public class ImportJobService {
                         rs.getInt("valid_rows"),
                         rs.getInt("error_rows"),
                         rs.getInt("warning_rows"),
-                        rs.getString("uploaded_at")
+                        rs.getString("uploaded_at"),
+                        rs.getObject("uploaded_by", Long.class),
+                        rs.getObject("submitted_by", Long.class),
+                        rs.getString("submitted_at"),
+                        rs.getString("approvers")
                 )
         );
     }

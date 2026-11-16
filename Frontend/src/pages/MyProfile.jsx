@@ -26,7 +26,7 @@ export default function MyProfile({ user, ability, onSessionExpired }) {
   const statements = useLoader(
     () => statementApi.list(),
     [],
-    { enabled: ability.hasAny('statement.view', 'statement.download') },
+    { enabled: ability.hasAny('statement.view', 'statement.download', 'payslip.view_self') },
   )
 
   const myRecord = isSelfService && Array.isArray(employees.data) ? employees.data[0] : null
@@ -115,7 +115,7 @@ export default function MyProfile({ user, ability, onSessionExpired }) {
         </section>
       )}
 
-      {ability.hasAny('statement.view', 'statement.download') && (
+      {ability.hasAny('statement.view', 'statement.download', 'payslip.view_self') && (
         <section className="panel section-gap">
           <div className="panel-head">
             <div>

@@ -562,6 +562,15 @@ public class EmployeeService {
 
     private EmployeeResponse attachDetails(EmployeeResponse base, boolean privileged) {
 
+        return attachDetails(base, canViewBankDetails(), canViewPanDetails());
+    }
+
+    private EmployeeResponse attachDetails(
+            EmployeeResponse base,
+            boolean canViewBank,
+            boolean canViewPan
+    ) {
+
         return new EmployeeResponse(
                 base.id(),
                 base.hrmsId(),
@@ -589,8 +598,8 @@ public class EmployeeService {
                 base.wardName(),
                 base.payrollUnitId(),
                 base.payrollUnitName(),
-                loadIdentities(base.id(), privileged),
-                loadBankAccounts(base.id(), privileged)
+                loadIdentities(base.id(), canViewPan),
+                loadBankAccounts(base.id(), canViewBank)
         );
     }
 
@@ -1171,6 +1180,23 @@ public class EmployeeService {
 
     private static boolean hasPrivilegedView() {
 
+        return hasAnyAuthority("employee.bank_view", "employee.pan_view");
+    }
+
+    /** Bank account numbers are unmasked for anyone who can see sensitive data. */
+    private static boolean canViewBankDetails() {
+
+        return hasAnyAuthority("employee.bank_view");
+    }
+
+    /** PAN identifies a person, so it is a separate, stricter grant. */
+    private static boolean canViewPanDetails() {
+
+        return hasAnyAuthority("employee.pan_view");
+    }
+
+    private static boolean hasAnyAuthority(String... authorities) {
+
         var authentication = SecurityContextHolder
                 .getContext()
                 .getAuthentication();
@@ -1179,10 +1205,16 @@ public class EmployeeService {
             return false;
         }
 
-        return authentication.getAuthorities().stream().anyMatch(authority ->
-                "employee.update".equals(authority.getAuthority())
-                        || "salary.manage".equals(authority.getAuthority())
-        );
+        for (String required : authorities) {
+            boolean granted = authentication.getAuthorities().stream()
+                    .anyMatch(authority -> required.equals(authority.getAuthority()));
+
+            if (granted) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static ResponseStatusException translateDuplicate(

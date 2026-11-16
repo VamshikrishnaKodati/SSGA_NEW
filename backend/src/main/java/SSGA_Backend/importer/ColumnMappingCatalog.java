@@ -522,12 +522,23 @@ public final class ColumnMappingCatalog {
      * Fuzzy key for salary-component matching. Source headers such as
      * {@code BASIC_PAY} or {@code OVERTIME} resolve to master codes
      * {@code BASIC} / {@code OT} when no exact match exists.
+     *
+     * <p>Also folds the pre-migration-43 codes onto the canonical 45-row
+     * register (HMWSSB August 2026 abstract), so workbooks saved before the
+     * component master reset keep resolving. Canonical codes are listed in
+     * {@code database/43_salary_components_master_reset.sql}.
      */
     public static String componentKey(String value) {
         String key = normalize(value);
 
         if (key.isEmpty()) {
             return key;
+        }
+
+        String canonical = LEGACY_COMPONENT_ALIASES.get(key);
+
+        if (canonical != null) {
+            return canonical;
         }
 
         if (key.equals("OVERTIME") || key.equals("OVERTIME_PAY")) {
@@ -549,6 +560,48 @@ public final class ColumnMappingCatalog {
 
         return stripped.isEmpty() ? key : stripped;
     }
+
+    /**
+     * Pre-migration-43 component code -> canonical code. Only codes that the
+     * parser and the seeded masters used before the reset, mapped to the code
+     * now in {@code salary_components}. Anything not listed falls through to
+     * the normal fuzzy matcher.
+     */
+    private static final Map<String, String> LEGACY_COMPONENT_ALIASES =
+            Map.copyOf(new LinkedHashMap<>() {{
+                // BASIC_PAY is itself canonical, but componentKey strips a
+                // trailing _PAY (so DA_PAY resolves to DA), which would turn the
+                // one real code into a non-existent "BASIC". Listed here so the
+                // lookup returns before the strip runs.
+                put("BASIC_PAY", "BASIC_PAY");
+                put("T_SPL_INCREMENT", "T_SPL_INC");
+                put("FP_PP", "FPP");
+                put("SPL_PAY_G_MITRA", "SPL_PAY_GI");
+                put("DA_33_67", "DA");
+                put("HRA_24", "HRA");
+                put("BOARD_FORMATION_DAY", "BOARD_FORM_ALLOW");
+                put("IR_5_2023", "IR_2023");
+                put("DA_ARREARS_26_39", "DA_ARR_26_39");
+                put("DA_ARREARS_30_03", "DA_ARR_30_03");
+                put("DA_ARREARS_33_67", "DA_ARR_33_67");
+                put("PENSION_SCHEME", "PENSION_2009");
+                put("TSGLIF", "TSGLI");
+                put("ELECT_CHAR", "ELEC_CHARGES");
+                put("EDCN_ADV", "EDN_ADV");
+                put("EXCESS_SALARY_RECOVERY", "EXCESS_SAL_REC");
+                put("EPF_12_PERCENT", "EPF_12_PCT");
+                put("SBI_LIFE_INSURANCE", "SBI_LIFE_INS");
+                put("ONE_DAY_SALARY", "ONE_DAY_SAL");
+                put("EPF_PRC_ARREARS", "EPF_PRC_LIC_MISC");
+                put("PRC_EXCESS_RECOVERY", "PRC_EXCESS_REC");
+                put("TELANGANA_HARITHA_NIDHI", "TG_HARITHA_NIDHI");
+                put("CCA_RECOVERY_DARUSSALAM", "DARUSSALAM_BANK_REC");
+                put("SBH_ANAND_NAGAR", "SBI_HIMAYATNAGAR");
+                put("FLAG_DAY_2025", "FLAG_DAY_FUND");
+                put("LIC", "LIC_PREMIUM");
+                put("COURT_ATCH", "COURT_ATCH");
+                put("COURT_ATTACHMENT", "COURT_ATCH");
+            }});
 
     private static boolean looksNumeric(String value) {
         String trimmed = value.trim();

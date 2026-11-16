@@ -5,7 +5,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: false,
   retries: 0,
-  workers: undefined,
+  // The real-backend spec logs in as the same seeded users; parallel workers
+  // race on the shared dev server and leave pages stuck loading.
+  workers: 1,
   reporter: 'list',
   use: {
     baseURL: 'http://localhost:5173',

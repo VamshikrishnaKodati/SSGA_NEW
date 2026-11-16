@@ -14,46 +14,81 @@ import java.util.List;
 
 public class ExcelTemplateGenerator {
 
-    // 48 HMWSSB Divisions
-    private static final String[] DIVISIONS = {
-        "ACCOUNTS (D01)", "ADMINISTRATION (D02)", "AUDIT (D03)", "BILLING (D04)",
-        "BUILDING MAINTENANCE (D05)", "CENTRAL STORES (D06)", "CHEMICAL LAB (D07)",
-        "COMMERCIAL (D08)", "COMPUTER CELL (D09)", "CONSTRUCTION DIV-1 (D10)",
-        "CONSTRUCTION DIV-2 (D11)", "CONSTRUCTION DIV-3 (D12)", "CONSTRUCTION DIV-4 (D13)",
-        "CONSTRUCTION DIV-5 (D14)", "CONSTRUCTION DIV-6 (D15)", "CONSTRUCTION DIV-7 (D16)",
-        "CONSTRUCTION DIV-8 (D17)", "CONSTRUCTION DIV-9 (D18)", "CONSTRUCTION DIV-10 (D19)",
-        "CONSTRUCTION DIV-11 (D20)", "CONSTRUCTION DIV-12 (D21)", "CONSTRUCTION DIV-13 (D22)",
-        "CONSTRUCTION DIV-14 (D23)", "CONSTRUCTION DIV-15 (D24)", "DEWATERING (D25)",
-        "ELECTRICAL MAINTENANCE (D26)", "FINANCE (D27)", "HORTICULTURE (D28)",
-        "HR & LEGAL (D29)", "INTERNAL AUDIT (D30)", "LAND ACQUISITION (D31)",
-        "MECHANICAL MAINTENANCE (D32)", "OPERATIONS (D33)", "PLANNING & DESIGN (D34)",
-        "PROCUREMENT (D35)", "PROJECT MONITORING (D36)", "PUBLIC RELATIONS (D37)",
-        "QUALITY CONTROL (D38)", "REVENUE (D39)", "SEWERAGE MAINTENANCE (D40)",
-        "STORM WATER DRAINS (D41)", "SURVEY (D42)", "TRAINING (D43)",
-        "VEHICLE MAINTENANCE (D44)", "VIGILANCE (D45)", "WATER SUPPLY MAINTENANCE (D46)",
-        "WATER TREATMENT PLANT-1 (D47)", "WATER TREATMENT PLANT-2 (D48)"
-    };
+    /**
+     * The active HMWSSB divisions and circles, read from public.divisions.
+     *
+     * <p>This used to be a hand-maintained copy of the register. It silently fell
+     * behind twice, and the reference sheet disagreed with the dropdown because
+     * the two lists were separate. There is now one source: the database, so the
+     * template cannot describe an organization unit that does not exist.
+     */
+    public record DivisionMaster(List<Division> divisions) {
+
+        public record Division(String code, String name, String unitType, String wingCode) {
+        }
+
+        public String[] names() {
+            return divisions.stream().map(Division::name).toArray(String[]::new);
+        }
+
+        /**
+         * Reads the division master the web application uses. The generator is a
+         * CLI, so it has no RLS session: reading public.divisions directly as
+         * ssga_app returns nothing because divisions_scope_policy needs
+         * app.user_id. app.template_divisions() is the app's own reader for
+         * exactly this purpose.
+         */
+        public static DivisionMaster fromJdbc(java.sql.Connection connection)
+                throws java.sql.SQLException {
+            List<Division> rows = new java.util.ArrayList<>();
+
+            try (var statement = connection.createStatement();
+                 var result = statement.executeQuery("SELECT * FROM app.template_divisions()")) {
+                while (result.next()) {
+                    rows.add(new Division(
+                            result.getString("code"),
+                            result.getString("name"),
+                            result.getString("unit_type"),
+                            result.getString("wing_code")
+                    ));
+                }
+            }
+
+            if (rows.isEmpty()) {
+                throw new java.sql.SQLException(
+                        "public.divisions returned no active units; refusing to write a template"
+                );
+            }
+
+            return new DivisionMaster(rows);
+        }
+    }
+
 
     // Earning component codes
-    private static final String[] EARNING_COMPONENTS = {
-        "BASIC", "DA", "HRA", "TA", "MA", "WA", "OA", "SPL_ALLOW",
-        "CCA", "HCA", "HILL_ALLOW", "OVT", "ARREARS", "BONUS", "LEAVE_ENCASH",
-        "MEDICAL", "EDU_ALLOW", "CHILD_ALLOW", "TRANSPORT", "WASHING",
-        "UNIFORM", "RISK", "HARD_AREA", "SPL_PAY", "DEPUTATION", "HONORARIUM", "OTHER_EARN"
+    // Source: database/43_salary_components_master_reset.sql.
+    static final String[] EARNING_COMPONENTS = {
+        "BASIC_PAY", "T_SPL_INC", "FPP", "SPL_PAY_GI", "DA",
+        "HRA", "ADDL_HRA", "CCA", "PETROL_AUTO_ALLOW", "WASHING_ALLOW",
+        "BOARD_FORM_ALLOW", "IR_2023", "DA_ARR_26_39", "DA_ARR_30_03",
+        "DA_ARR_33_67"
     };
 
     // Deduction component codes
-    private static final String[] DEDUCTION_COMPONENTS = {
-        "GPF_DED", "CPF_DED", "NPS_DED", "GIS_DED", "LIC_DED", "BANK_LOAN",
-        "HBA_DED", "EDU_LOAN", "FEST_ADV", "COMP_ADV", "VEH_ADV", "HOUSE_RENT",
-        "WATER_CHG", "ELEC_CHG", "INCOME_TAX", "PROF_TAX", "GIS_INS", "CGHS",
-        "CGEGIS", "UNION_DUES", "COOP_SOC", "COURT_ATT", "OTHER_DED", "NPS_EMPR"
+    // Source: database/43_salary_components_master_reset.sql and
+    // database/45_add_court_attachment.sql.
+    static final String[] DEDUCTION_COMPONENTS = {
+        "GPF_EPF", "GPF_EPF_LOAN", "PENSION_2009", "TSGLI", "GIS", "PRC_2020_NPS",
+        "ELEC_CHARGES", "FESTIVAL_ADV", "EDN_ADV", "VEHICLE_ADV", "MOPED_ADV",
+        "EXCESS_SAL_REC", "EPF_12_PCT", "SBI_LIFE_INS", "ONE_DAY_SAL",
+        "MARRIAGE_LOAN", "MGB_AN", "PROF_TAX", "INCOME_TAX", "EPF_PRC_LIC_MISC",
+        "PRC_EXCESS_REC", "MGB_PC", "TG_HARITHA_NIDHI", "DARUSSALAM_BANK_REC",
+        "SBI_HIMAYATNAGAR", "FLAG_DAY_FUND", "LIC_PREMIUM", "COURT_ATCH"
     };
 
-    // Statutory component codes
-    private static final String[] STATUTORY_COMPONENTS = {
-        "PF_EMPR", "ESI_EMPR", "PT_EMPR", "LWF_EMPR"
-    };
+    // The register has no STATUTORY rows; employer contributions are not part
+    // of the HMWSSB component master.
+    private static final String[] STATUTORY_COMPONENTS = {};
 
     private static final String[] ALL_COMPONENTS;
 
@@ -75,13 +110,31 @@ public class ExcelTemplateGenerator {
         "BASIC_PAY", "BANK_ACCOUNT", "IFSC_CODE", "BANK_NAME", "BRANCH", "EMPLOYEE_STATUS"
     };
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws Exception {
         String outputPath = "src/main/resources/templates/hmwssb_salary_import_template.xlsx";
-        generateTemplate(outputPath);
+
+        String url = env("SSGA_DB_URL", "jdbc:postgresql://localhost:5432/ssga_new_db");
+        String user = env("SSGA_DB_USER", "ssga_app");
+        String password = env("SSGA_DB_PASSWORD", "2706");
+
+        try (java.sql.Connection connection =
+                     java.sql.DriverManager.getConnection(url, user, password)) {
+            DivisionMaster master = DivisionMaster.fromJdbc(connection);
+            generateTemplate(outputPath, master);
+        }
+
         System.out.println("Template generated at: " + outputPath);
     }
 
-    public static void generateTemplate(String outputPath) throws IOException {
+    private static String env(String name, String fallback) {
+        String value = System.getenv(name);
+
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    public static void generateTemplate(String outputPath, DivisionMaster master) throws IOException {
+        String[] divisions = master.names();
+
         Path path = Paths.get(outputPath);
         Files.createDirectories(path.getParent());
 
@@ -108,7 +161,7 @@ public class ExcelTemplateGenerator {
 
             Row instrRow2 = wideSheet.createRow(1);
             Cell instrCell2 = instrRow2.createCell(0);
-            instrCell2.setCellValue("RULES: 1) At least ONE identity column required (HRMS_ID/AADHAAR/PAN/CONTACT/EMAIL/PF/NPS/GPF). 2) EMPLOYEE_NAME is MANDATORY. 3) DIVISION/DIVISION_ID optional (auto-matched to 48 HMWSSB divisions). 4) Component columns optional - enter amounts only for applicable components. 5) EFFECTIVE_FROM defaults to 1st of payroll month if blank. 6) Delete this instruction row before import.");
+            instrCell2.setCellValue("RULES: 1) At least ONE identity column required (HRMS_ID/AADHAAR/PAN/CONTACT/EMAIL/PF/NPS/GPF). 2) EMPLOYEE_NAME is MANDATORY. 3) DIVISION/DIVISION_ID optional (auto-matched to 54 HMWSSB divisions/circles). 4) Component columns optional - enter amounts only for applicable components. 5) EFFECTIVE_FROM defaults to 1st of payroll month if blank. 6) Delete this instruction row before import.");
             instrCell2.setCellStyle(instructionStyle);
             wideSheet.addMergedRegion(new CellRangeAddress(1, 1, 0, 80));
 
@@ -157,7 +210,7 @@ public class ExcelTemplateGenerator {
             effCell.setCellStyle(optionalStyle);
 
             // Add data validation for DIVISION column (column index = 8)
-            addDivisionValidation(wideSheet, 8, DIVISIONS);
+            addDivisionValidation(wideSheet, 8, divisions);
 
             // Add data validation for EMPLOYMENT_TYPE (column index = 14)
             addEmploymentTypeValidation(wideSheet, 14);
@@ -262,8 +315,8 @@ public class ExcelTemplateGenerator {
             }
 
             // Add division validation for DIVISION (col 9) and DIVISION_ID (col 10)
-            addDivisionValidation(longSheet, 9, DIVISIONS);
-            addDivisionValidation(longSheet, 10, DIVISIONS);
+            addDivisionValidation(longSheet, 9, divisions);
+            addDivisionValidation(longSheet, 10, divisions);
 
             // Add component code validation
             addComponentValidation(longSheet, 11, ALL_COMPONENTS);
@@ -274,23 +327,23 @@ public class ExcelTemplateGenerator {
             // Sample rows (rows 4-12)
             Object[][] longSamples = {
                 {"EMP001", "123456789012", "", "9876543210", "ravi@hmwssb.gov.in", "", "", "",
-                 "RAVI KUMAR", "ACCOUNTS (D01)", "D01", "BASIC", 25500, "EARNING", "01-04-2024", ""},
+                 "RAVI KUMAR", "Board Office", "DIV_BRD_OFF", "BASIC_PAY", 25500, "EARNING", "01-04-2024", ""},
                 {"EMP001", "123456789012", "", "9876543210", "ravi@hmwssb.gov.in", "", "", "",
-                 "RAVI KUMAR", "ACCOUNTS (D01)", "D01", "DA", 9690, "EARNING", "01-04-2024", ""},
+                 "RAVI KUMAR", "Board Office", "DIV_BRD_OFF", "DA", 8584, "EARNING", "01-04-2024", ""},
                 {"EMP001", "123456789012", "", "9876543210", "ravi@hmwssb.gov.in", "", "", "",
-                 "RAVI KUMAR", "ACCOUNTS (D01)", "D01", "HRA", 3000, "EARNING", "01-04-2024", ""},
+                 "RAVI KUMAR", "Board Office", "DIV_BRD_OFF", "HRA", 6120, "EARNING", "01-04-2024", ""},
                 {"EMP001", "123456789012", "", "9876543210", "ravi@hmwssb.gov.in", "", "", "",
-                 "RAVI KUMAR", "ACCOUNTS (D01)", "D01", "GPF_DED", 2500, "DEDUCTION", "01-04-2024", ""},
+                 "RAVI KUMAR", "Board Office", "DIV_BRD_OFF", "GPF_EPF", 2500, "DEDUCTION", "01-04-2024", ""},
                 {"EMP001", "123456789012", "", "9876543210", "ravi@hmwssb.gov.in", "", "", "",
-                 "RAVI KUMAR", "ACCOUNTS (D01)", "D01", "INCOME_TAX", 1200, "DEDUCTION", "01-04-2024", ""},
+                 "RAVI KUMAR", "Board Office", "DIV_BRD_OFF", "INCOME_TAX", 1200, "DEDUCTION", "01-04-2024", ""},
                 {"", "234567890123", "", "9876543211", "priya@hmwssb.gov.in", "", "", "",
-                 "PRIYA SHARMA", "OPERATIONS (D33)", "D33", "BASIC", 44900, "EARNING", "01-04-2024", ""},
+                 "PRIYA SHARMA", "O&M Division No.I", "DIV_OM_01", "BASIC_PAY", 44900, "EARNING", "01-04-2024", ""},
                 {"", "234567890123", "", "9876543211", "priya@hmwssb.gov.in", "", "", "",
-                 "PRIYA SHARMA", "OPERATIONS (D33)", "D33", "DA", 17062, "EARNING", "01-04-2024", ""},
+                 "PRIYA SHARMA", "O&M Division No.I", "DIV_OM_01", "DA", 15118, "EARNING", "01-04-2024", ""},
                 {"", "234567890123", "", "9876543211", "priya@hmwssb.gov.in", "", "", "",
-                 "PRIYA SHARMA", "OPERATIONS (D33)", "D33", "NPS_DED", 4490, "DEDUCTION", "01-04-2024", ""},
+                 "PRIYA SHARMA", "O&M Division No.I", "DIV_OM_01", "PRC_2020_NPS", 6002, "DEDUCTION", "01-04-2024", ""},
                 {"", "", "ABCDE1234F", "9876543212", "suresh@hmwssb.gov.in", "", "", "",
-                 "SURESH REDDY", "CONSTRUCTION DIV-1 (D10)", "D10", "BASIC", 35400, "EARNING", "01-04-2024", ""},
+                 "SURESH REDDY", "Central Stores Division", "DIV_CEN_STR", "BASIC_PAY", 35400, "EARNING", "01-04-2024", ""},
             };
 
             for (int i = 0; i < longSamples.length; i++) {
@@ -324,63 +377,19 @@ public class ExcelTemplateGenerator {
                 cell.setCellStyle(headerStyle);
             }
 
-            String[][] divisionData = {
-                {"D01", "ACCOUNTS", "FINANCE", "FINANCE", "1", "ACTIVE", "VERIFIED"},
-                {"D02", "ADMINISTRATION", "ADMIN", "ADMIN", "2", "ACTIVE", "VERIFIED"},
-                {"D03", "AUDIT", "FINANCE", "FINANCE", "3", "ACTIVE", "VERIFIED"},
-                {"D04", "BILLING", "COMMERCIAL", "COMMERCIAL", "4", "ACTIVE", "VERIFIED"},
-                {"D05", "BUILDING MAINTENANCE", "ENGINEERING", "MAINTENANCE", "5", "ACTIVE", "VERIFIED"},
-                {"D06", "CENTRAL STORES", "STORES", "PROCUREMENT", "6", "ACTIVE", "VERIFIED"},
-                {"D07", "CHEMICAL LAB", "QUALITY", "ENGINEERING", "7", "ACTIVE", "VERIFIED"},
-                {"D08", "COMMERCIAL", "COMMERCIAL", "COMMERCIAL", "8", "ACTIVE", "VERIFIED"},
-                {"D09", "COMPUTER CELL", "IT", "ADMIN", "9", "ACTIVE", "VERIFIED"},
-                {"D10", "CONSTRUCTION DIV-1", "ENGINEERING", "CONSTRUCTION", "10", "ACTIVE", "VERIFIED"},
-                {"D11", "CONSTRUCTION DIV-2", "ENGINEERING", "CONSTRUCTION", "11", "ACTIVE", "VERIFIED"},
-                {"D12", "CONSTRUCTION DIV-3", "ENGINEERING", "CONSTRUCTION", "12", "ACTIVE", "VERIFIED"},
-                {"D13", "CONSTRUCTION DIV-4", "ENGINEERING", "CONSTRUCTION", "13", "ACTIVE", "VERIFIED"},
-                {"D14", "CONSTRUCTION DIV-5", "ENGINEERING", "CONSTRUCTION", "14", "ACTIVE", "VERIFIED"},
-                {"D15", "CONSTRUCTION DIV-6", "ENGINEERING", "CONSTRUCTION", "15", "ACTIVE", "VERIFIED"},
-                {"D16", "CONSTRUCTION DIV-7", "ENGINEERING", "CONSTRUCTION", "16", "ACTIVE", "VERIFIED"},
-                {"D17", "CONSTRUCTION DIV-8", "ENGINEERING", "CONSTRUCTION", "17", "ACTIVE", "VERIFIED"},
-                {"D18", "CONSTRUCTION DIV-9", "ENGINEERING", "CONSTRUCTION", "18", "ACTIVE", "VERIFIED"},
-                {"D19", "CONSTRUCTION DIV-10", "ENGINEERING", "CONSTRUCTION", "19", "ACTIVE", "VERIFIED"},
-                {"D20", "CONSTRUCTION DIV-11", "ENGINEERING", "CONSTRUCTION", "20", "ACTIVE", "VERIFIED"},
-                {"D21", "CONSTRUCTION DIV-12", "ENGINEERING", "CONSTRUCTION", "21", "ACTIVE", "VERIFIED"},
-                {"D22", "CONSTRUCTION DIV-13", "ENGINEERING", "CONSTRUCTION", "22", "ACTIVE", "VERIFIED"},
-                {"D23", "CONSTRUCTION DIV-14", "ENGINEERING", "CONSTRUCTION", "23", "ACTIVE", "VERIFIED"},
-                {"D24", "CONSTRUCTION DIV-15", "ENGINEERING", "CONSTRUCTION", "24", "ACTIVE", "VERIFIED"},
-                {"D25", "DEWATERING", "ENGINEERING", "OPERATIONS", "25", "ACTIVE", "VERIFIED"},
-                {"D26", "ELECTRICAL MAINTENANCE", "ENGINEERING", "MAINTENANCE", "26", "ACTIVE", "VERIFIED"},
-                {"D27", "FINANCE", "FINANCE", "FINANCE", "27", "ACTIVE", "VERIFIED"},
-                {"D28", "HORTICULTURE", "ENGINEERING", "MAINTENANCE", "28", "ACTIVE", "VERIFIED"},
-                {"D29", "HR & LEGAL", "ADMIN", "ADMIN", "29", "ACTIVE", "VERIFIED"},
-                {"D30", "INTERNAL AUDIT", "FINANCE", "FINANCE", "30", "ACTIVE", "VERIFIED"},
-                {"D31", "LAND ACQUISITION", "ENGINEERING", "PLANNING", "31", "ACTIVE", "VERIFIED"},
-                {"D32", "MECHANICAL MAINTENANCE", "ENGINEERING", "MAINTENANCE", "32", "ACTIVE", "VERIFIED"},
-                {"D33", "OPERATIONS", "ENGINEERING", "OPERATIONS", "33", "ACTIVE", "VERIFIED"},
-                {"D34", "PLANNING & DESIGN", "ENGINEERING", "PLANNING", "34", "ACTIVE", "VERIFIED"},
-                {"D35", "PROCUREMENT", "STORES", "PROCUREMENT", "35", "ACTIVE", "VERIFIED"},
-                {"D36", "PROJECT MONITORING", "ENGINEERING", "PLANNING", "36", "ACTIVE", "VERIFIED"},
-                {"D37", "PUBLIC RELATIONS", "ADMIN", "ADMIN", "37", "ACTIVE", "VERIFIED"},
-                {"D38", "QUALITY CONTROL", "QUALITY", "ENGINEERING", "38", "ACTIVE", "VERIFIED"},
-                {"D39", "REVENUE", "COMMERCIAL", "COMMERCIAL", "39", "ACTIVE", "VERIFIED"},
-                {"D40", "SEWERAGE MAINTENANCE", "ENGINEERING", "MAINTENANCE", "40", "ACTIVE", "VERIFIED"},
-                {"D41", "STORM WATER DRAINS", "ENGINEERING", "MAINTENANCE", "41", "ACTIVE", "VERIFIED"},
-                {"D42", "SURVEY", "ENGINEERING", "PLANNING", "42", "ACTIVE", "VERIFIED"},
-                {"D43", "TRAINING", "ADMIN", "ADMIN", "43", "ACTIVE", "VERIFIED"},
-                {"D44", "VEHICLE MAINTENANCE", "ENGINEERING", "MAINTENANCE", "44", "ACTIVE", "VERIFIED"},
-                {"D45", "VIGILANCE", "ADMIN", "ADMIN", "45", "ACTIVE", "VERIFIED"},
-                {"D46", "WATER SUPPLY MAINTENANCE", "ENGINEERING", "OPERATIONS", "46", "ACTIVE", "VERIFIED"},
-                {"D47", "WATER TREATMENT PLANT-1", "ENGINEERING", "OPERATIONS", "47", "ACTIVE", "VERIFIED"},
-                {"D48", "WATER TREATMENT PLANT-2", "ENGINEERING", "OPERATIONS", "48", "ACTIVE", "VERIFIED"},
-            };
-
-            for (int i = 0; i < divisionData.length; i++) {
+            // Same master as the dropdown, so the sheet and the validation list
+            // can never describe different organizations.
+            for (int i = 0; i < master.divisions().size(); i++) {
                 Row row = divSheet.createRow(i + 1);
-                for (int j = 0; j < divisionData[i].length; j++) {
-                    Cell cell = row.createCell(j);
-                    cell.setCellValue(divisionData[i][j]);
-                }
+                DivisionMaster.Division unit = master.divisions().get(i);
+
+                row.createCell(0).setCellValue(unit.code());
+                row.createCell(1).setCellValue(unit.name());
+                row.createCell(2).setCellValue(unit.unitType());
+                row.createCell(3).setCellValue(unit.wingCode());
+                row.createCell(4).setCellValue(String.valueOf((i + 1) * 10));
+                row.createCell(5).setCellValue("ACTIVE");
+                row.createCell(6).setCellValue("CONFIRMED");
             }
 
             // ============================================================
@@ -397,65 +406,55 @@ public class ExcelTemplateGenerator {
                 cell.setCellStyle(headerStyle);
             }
 
+            // Mirrors salary_components. The summary rows (GROSS_EARNINGS,
+            // TOTAL_DEDUCTIONS, NET_SALARY) are derived by the engine and must
+            // never be imported, so they are deliberately absent.
             String[][] componentData = {
                 // Earnings
-                {"BASIC", "Basic Pay", "EARNING", "Basic salary component", "true"},
-                {"DA", "Dearness Allowance", "EARNING", "DA as per govt rules", "true"},
-                {"HRA", "House Rent Allowance", "EARNING", "HRA based on city classification", "true"},
-                {"TA", "Travel Allowance", "EARNING", "Transport allowance", "true"},
-                {"MA", "Medical Allowance", "EARNING", "Fixed medical allowance", "true"},
-                {"WA", "Washing Allowance", "EARNING", "Uniform washing allowance", "true"},
-                {"OA", "Other Allowance", "EARNING", "Miscellaneous allowance", "true"},
-                {"SPL_ALLOW", "Special Allowance", "EARNING", "Special duty allowance", "true"},
-                {"CCA", "City Compensatory Allowance", "EARNING", "CCA for metro cities", "true"},
-                {"HCA", "Hill Compensatory Allowance", "EARNING", "Hill area allowance", "true"},
-                {"HILL_ALLOW", "Hill Allowance", "EARNING", "Allowance for hill postings", "true"},
-                {"OVT", "Overtime", "EARNING", "Overtime payments", "true"},
-                {"ARREARS", "Arrears", "EARNING", "Salary arrears", "true"},
-                {"BONUS", "Bonus", "EARNING", "Annual bonus", "true"},
-                {"LEAVE_ENCASH", "Leave Encashment", "EARNING", "Earned leave encashment", "true"},
-                {"MEDICAL", "Medical Reimbursement", "EARNING", "Medical bill reimbursement", "true"},
-                {"EDU_ALLOW", "Education Allowance", "EARNING", "Children education allowance", "true"},
-                {"CHILD_ALLOW", "Child Allowance", "EARNING", "Child care allowance", "true"},
-                {"TRANSPORT", "Transport Allowance", "EARNING", "Transport/commute allowance", "true"},
-                {"WASHING", "Washing Allowance", "EARNING", "Uniform maintenance", "true"},
-                {"UNIFORM", "Uniform Allowance", "EARNING", "Uniform stitching/maintenance", "true"},
-                {"RISK", "Risk Allowance", "EARNING", "Hazardous duty allowance", "true"},
-                {"HARD_AREA", "Hard Area Allowance", "EARNING", "Difficult area posting allowance", "true"},
-                {"SPL_PAY", "Special Pay", "EARNING", "Special pay for additional duties", "true"},
-                {"DEPUTATION", "Deputation Allowance", "EARNING", "Deputation duty allowance", "true"},
-                {"HONORARIUM", "Honorarium", "EARNING", "Honorarium payments", "true"},
-                {"OTHER_EARN", "Other Earnings", "EARNING", "Miscellaneous earnings", "true"},
+                {"BASIC_PAY", "Basic Pay", "EARNING", "Basic pay", "true"},
+                {"T_SPL_INC", "Telangana Special Increment", "EARNING", "Telangana special increment", "true"},
+                {"FPP", "Family Planning Pay", "EARNING", "Family planning pay", "true"},
+                {"SPL_PAY_GI", "Special Pay / Grade Increment", "EARNING", "Special pay / grade increment", "true"},
+                {"DA", "Dearness Allowance", "EARNING", "Dearness allowance", "true"},
+                {"HRA", "House Rent Allowance", "EARNING", "House rent allowance", "true"},
+                {"ADDL_HRA", "Additional House Rent Allowance", "EARNING", "Additional house rent allowance", "true"},
+                {"CCA", "City Compensatory Allowance", "EARNING", "City compensatory allowance", "true"},
+                {"PETROL_AUTO_ALLOW", "Petrol / Auto Conveyance Allowance", "EARNING", "Petrol / auto conveyance allowance", "true"},
+                {"WASHING_ALLOW", "Washing Allowance", "EARNING", "Washing allowance", "true"},
+                {"BOARD_FORM_ALLOW", "Board Formation Day Allowance", "EARNING", "Board formation day allowance", "true"},
+                {"IR_2023", "Interim Relief (5% - 2023)", "EARNING", "Interim relief", "true"},
+                {"DA_ARR_26_39", "DA Arrears (26.39% Slab)", "EARNING", "DA arrears, 26.39% slab", "true"},
+                {"DA_ARR_30_03", "DA Arrears (30.03% Slab)", "EARNING", "DA arrears, 30.03% slab", "true"},
+                {"DA_ARR_33_67", "DA Arrears (33.67% Slab)", "EARNING", "DA arrears, 33.67% slab", "true"},
                 // Deductions
-                {"GPF_DED", "GPF Subscription", "DEDUCTION", "General Provident Fund", "true"},
-                {"CPF_DED", "CPF Subscription", "DEDUCTION", "Contributory Provident Fund", "true"},
-                {"NPS_DED", "NPS Employee Share", "DEDUCTION", "National Pension System", "true"},
-                {"GIS_DED", "Group Insurance Scheme", "DEDUCTION", "GIS premium", "true"},
-                {"LIC_DED", "LIC Premium", "DEDUCTION", "LIC policy premium deduction", "true"},
-                {"BANK_LOAN", "Bank Loan Recovery", "DEDUCTION", "Bank loan EMI recovery", "true"},
-                {"HBA_DED", "House Building Advance", "DEDUCTION", "HBA recovery", "true"},
-                {"EDU_LOAN", "Education Loan", "DEDUCTION", "Education loan recovery", "true"},
-                {"FEST_ADV", "Festival Advance", "DEDUCTION", "Festival advance recovery", "true"},
-                {"COMP_ADV", "Computer Advance", "DEDUCTION", "Computer advance recovery", "true"},
-                {"VEH_ADV", "Vehicle Advance", "DEDUCTION", "Vehicle advance recovery", "true"},
-                {"HOUSE_RENT", "House Rent Recovery", "DEDUCTION", "Govt quarter rent", "true"},
-                {"WATER_CHG", "Water Charges", "DEDUCTION", "Water consumption charges", "true"},
-                {"ELEC_CHG", "Electricity Charges", "DEDUCTION", "Electricity consumption charges", "true"},
+                {"GPF_EPF", "General / Employees Provident Fund", "DEDUCTION", "GPF / EPF subscription", "true"},
+                {"GPF_EPF_LOAN", "GPF / EPF Loan Recovery", "DEDUCTION", "GPF / EPF loan recovery", "true"},
+                {"PENSION_2009", "Pension Scheme (w.e.f. March 2009)", "DEDUCTION", "Pension scheme contribution", "true"},
+                {"TSGLI", "Telangana State Group Life Insurance", "DEDUCTION", "TSGLI premium", "true"},
+                {"GIS", "Group Insurance Scheme", "DEDUCTION", "Group insurance scheme premium", "true"},
+                {"PRC_2020_NPS", "PRC-2020 NPS Deduction", "DEDUCTION", "NPS employee contribution", "true"},
+                {"ELEC_CHARGES", "Electricity Charges Recovery", "DEDUCTION", "Electricity charges recovery", "true"},
+                {"FESTIVAL_ADV", "Festival Advance Recovery", "DEDUCTION", "Festival advance recovery", "true"},
+                {"EDN_ADV", "Education Advance Recovery", "DEDUCTION", "Education advance recovery", "true"},
+                {"VEHICLE_ADV", "Vehicle Advance Recovery", "DEDUCTION", "Vehicle advance recovery", "true"},
+                {"MOPED_ADV", "Moped Advance Recovery", "DEDUCTION", "Moped advance recovery", "true"},
+                {"EXCESS_SAL_REC", "Excess Salary Recovery", "DEDUCTION", "Excess salary recovery", "true"},
+                {"EPF_12_PCT", "EPF Contribution (12% of Pay + DA)", "DEDUCTION", "EPF employee contribution", "true"},
+                {"SBI_LIFE_INS", "SBI Life Insurance Premium", "DEDUCTION", "SBI Life insurance premium", "true"},
+                {"ONE_DAY_SAL", "One Day Salary Contribution", "DEDUCTION", "One day salary contribution", "true"},
+                {"MARRIAGE_LOAN", "Marriage Loan Recovery", "DEDUCTION", "Marriage loan recovery", "true"},
+                {"MGB_AN", "MGB Recovery (A.N)", "DEDUCTION", "MGB recovery, A.N", "true"},
+                {"PROF_TAX", "Professional Tax (PT)", "DEDUCTION", "Professional tax", "true"},
                 {"INCOME_TAX", "Income Tax (TDS)", "DEDUCTION", "Tax deducted at source", "true"},
-                {"PROF_TAX", "Professional Tax", "DEDUCTION", "State professional tax", "true"},
-                {"GIS_INS", "GIS Insurance", "DEDUCTION", "Group insurance premium", "true"},
-                {"CGHS", "CGHS Contribution", "DEDUCTION", "Central Govt Health Scheme", "true"},
-                {"CGEGIS", "CGEGIS", "DEDUCTION", "Central Govt Employees Group Insurance", "true"},
-                {"UNION_DUES", "Union Dues", "DEDUCTION", "Employee union subscription", "true"},
-                {"COOP_SOC", "Cooperative Society", "DEDUCTION", "Co-op society deduction", "true"},
-                {"COURT_ATT", "Court Attachment", "DEDUCTION", "Court ordered deduction", "true"},
-                {"OTHER_DED", "Other Deductions", "DEDUCTION", "Miscellaneous deductions", "true"},
-                {"NPS_EMPR", "NPS Employer Share", "DEDUCTION", "Employer NPS contribution", "true"},
-                // Statutory
-                {"PF_EMPR", "PF Employer Share", "STATUTORY", "Employer PF contribution", "true"},
-                {"ESI_EMPR", "ESI Employer Share", "STATUTORY", "Employer ESI contribution", "true"},
-                {"PT_EMPR", "PT Employer Share", "STATUTORY", "Employer Professional Tax", "true"},
-                {"LWF_EMPR", "LWF Employer Share", "STATUTORY", "Labour Welfare Fund", "true"},
+                {"EPF_PRC_LIC_MISC", "EPF / PRC Arrears / LIC / BHEL Recovery", "DEDUCTION", "EPF / PRC arrears / LIC / BHEL recovery", "true"},
+                {"PRC_EXCESS_REC", "PRC Excess Amount Recovery", "DEDUCTION", "PRC excess amount recovery", "true"},
+                {"MGB_PC", "MGB Recovery (P.C)", "DEDUCTION", "MGB recovery, P.C", "true"},
+                {"TG_HARITHA_NIDHI", "Telangana Haritha Nidhi (Green Fund)", "DEDUCTION", "Telangana Haritha Nidhi", "true"},
+                {"DARUSSALAM_BANK_REC", "Darussalam Co-op Bank Recovery", "DEDUCTION", "Darussalam Co-op Bank recovery", "true"},
+                {"SBI_HIMAYATNAGAR", "SBI Himayatnagar Recovery", "DEDUCTION", "SBI Himayatnagar recovery", "true"},
+                {"FLAG_DAY_FUND", "Armed Forces Flag Day Fund", "DEDUCTION", "Armed Forces Flag Day Fund", "true"},
+                {"LIC_PREMIUM", "LIC Salary Savings Scheme Premium", "DEDUCTION", "LIC salary savings scheme premium", "true"},
+                {"COURT_ATCH", "Court Attachment", "DEDUCTION", "Court ordered deduction", "true"},
             };
 
             for (int i = 0; i < componentData.length; i++) {
@@ -540,9 +539,12 @@ public class ExcelTemplateGenerator {
     }
 
     private static void addDivisionValidation(Sheet sheet, int colIndex, String[] divisions) {
-        // Create a hidden sheet with division list for data validation (to avoid 255 char limit)
         Workbook wb = sheet.getWorkbook();
-        String hiddenSheetName = "_Divisions_List_" + colIndex + "_" + System.currentTimeMillis();
+        // POI silently trims a sheet name longer than 31 characters, which would
+        // leave the validation formula pointing at a sheet that does not exist
+        // and make Excel offer to repair the file.
+        String hiddenSheetName = org.apache.poi.ss.util.WorkbookUtil
+                .createSafeSheetName("_Divisions_List_" + colIndex);
         Sheet hiddenSheet = wb.createSheet(hiddenSheetName);
         for (int i = 0; i < divisions.length; i++) {
             Row r = hiddenSheet.createRow(i);
@@ -553,7 +555,10 @@ public class ExcelTemplateGenerator {
         String rangeName = "HMWSSB_DIVISIONS_" + colIndex;
         Name namedRange = wb.createName();
         namedRange.setNameName(rangeName);
-        namedRange.setRefersToFormula(hiddenSheetName + "!$A$1:$A$" + divisions.length);
+        namedRange.setRefersToFormula(
+                org.apache.poi.ss.util.WorkbookUtil
+                        .createSafeSheetName(hiddenSheetName) + "!$A$1:$A$" + divisions.length
+        );
 
         DataValidationHelper dvHelper = sheet.getDataValidationHelper();
         DataValidationConstraint dvConstraint = dvHelper.createFormulaListConstraint(rangeName);
@@ -588,7 +593,8 @@ public class ExcelTemplateGenerator {
 
     private static void addComponentValidation(Sheet sheet, int colIndex, String[] components) {
         Workbook wb = sheet.getWorkbook();
-        String hiddenSheetName = "_Components_List_" + colIndex + "_" + System.currentTimeMillis();
+        String hiddenSheetName = org.apache.poi.ss.util.WorkbookUtil
+                .createSafeSheetName("_Components_List_" + colIndex);
         Sheet hiddenSheet = wb.createSheet(hiddenSheetName);
         for (int i = 0; i < components.length; i++) {
             Row r = hiddenSheet.createRow(i);
@@ -621,3 +627,4 @@ public class ExcelTemplateGenerator {
         sheet.addValidationData(validation);
     }
 }
+

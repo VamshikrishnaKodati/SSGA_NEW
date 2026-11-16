@@ -1,11 +1,29 @@
 package SSGA_Backend.importer;
 
 import java.io.IOException;
-import java.util.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
-import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -13,249 +31,319 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.ArrayNode;
-import tools.jackson.databind.node.ObjectNode;
-
 import SSGA_Backend.security.RlsContext;
 import SSGA_Backend.security.SsgaPrincipal;
+import tools.jackson.databind.json.JsonMapper;
 
+/**
+ * Intelligent column auto-mapping: reads the stored workbook, samples each
+ * column, and returns evidence-based suggestions with HIGH / REVIEW / UNMATCHED
+ * confidence. Nothing is persisted here — the operator still confirms the
+ * mapping through the existing mapping endpoint.
+ */
 @Service
 public class ImportJobAutoMapService {
 
+    private static final int SAMPLE_ROWS = 10;
+    private static final int MAX_SCAN_ROWS = 200;
+    private static final Set<String> WIDE_TYPES =
+            Set.of("SALARY_ENTITLEMENTS", "PAYROLL_HISTORY", "EMPLOYEE_MASTER_AND_COMPONENTS");
+
     private final JdbcTemplate jdbcTemplate;
     private final RlsContext rlsContext;
-    private final ObjectMapper objectMapper;
+    private final JsonMapper jsonMapper;
+    private final Path storageRoot;
 
-    public ImportJobAutoMapService(JdbcTemplate jdbcTemplate, RlsContext rlsContext, ObjectMapper objectMapper) {
+    public ImportJobAutoMapService(
+            JdbcTemplate jdbcTemplate,
+            RlsContext rlsContext,
+            JsonMapper jsonMapper,
+            @Value("${ssga.import.storage-dir:}") String storageDirectory
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.rlsContext = rlsContext;
-        this.objectMapper = objectMapper;
+        this.jsonMapper = jsonMapper;
+
+        Path configured = storageDirectory == null || storageDirectory.isBlank()
+                ? Paths.get(System.getProperty("user.home"), "ssga-data", "imports")
+                : Paths.get(storageDirectory);
+
+        this.storageRoot = configured.toAbsolutePath().normalize();
     }
 
     @Transactional(transactionManager = "dataSourceTransactionManager")
-    public ImportJobSheetAutoMapResponse autoMap(long jobId, int sheetIndex) throws IOException {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !(auth.getPrincipal() instanceof SsgaPrincipal user)) {
-            throw new ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Authenticated user not found");
+    public ImportJobSheetAutoMapResponse autoMap(long jobId, int sheetIndex)
+            throws IOException {
+
+        if (jobId <= 0 || sheetIndex < 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "A valid job ID and worksheet index are required."
+            );
+        }
+
+        Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+
+        if (authentication == null
+                || !(authentication.getPrincipal()
+                        instanceof SsgaPrincipal user)) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authenticated user not found."
+            );
         }
 
         rlsContext.setCurrentUser();
 
-        // Get sheet info
-        Map<String, Object> sheet = jdbcTemplate.queryForMap(
-            "SELECT id, sheet_name, suggested_type, headers, header_row_number " +
-            "FROM public.import_job_sheets WHERE import_job_id = ? AND sheet_index = ?",
-            jobId, sheetIndex
+        List<Map<String, Object>> records = jdbcTemplate.queryForList(
+                """
+                SELECT
+                    s.sheet_name,
+                    s.suggested_type,
+                    s.confirmed_type,
+                    s.header_row_number,
+                    s.headers::text AS headers_json,
+                    j.file_key
+                FROM public.import_job_sheets s
+                JOIN public.import_jobs j ON j.id = s.import_job_id
+                WHERE s.import_job_id = ?
+                  AND s.sheet_index = ?
+                  AND j.uploaded_by = ?
+                """,
+                jobId,
+                sheetIndex,
+                user.getUserId()
         );
 
-        String suggestedType = (String) sheet.get("suggested_type");
-        String[] headerArray = objectMapper.readValue(sheet.get("headers").toString(), String[].class);
+        if (records.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "Import job or worksheet not found."
+            );
+        }
+
+        Map<String, Object> record = records.get(0);
+        String sheetName = (String) record.get("sheet_name");
+        String headersJson = (String) record.get("headers_json");
+
+        String[] headerArray = jsonMapper.readValue(headersJson, String[].class);
         List<String> headers = Arrays.asList(headerArray);
 
-        // Build suggested column mapping based on sheet type
-        Map<String, Object> suggestedColumns = new LinkedHashMap<>();
-        Map<String, Object> suggestedOptions = new LinkedHashMap<>();
+        String importType = resolveType(
+                (String) record.get("confirmed_type"),
+                (String) record.get("suggested_type")
+        );
 
-        switch (suggestedType) {
-            case "EMPLOYEE_MASTER_AND_COMPONENTS" -> {
-                suggestedColumns.putAll(suggestEmployeeMasterColumns(headers));
-                suggestedColumns.putAll(suggestComponentColumns(headers));
-                suggestedOptions.put("layout", detectLayout(headers));
-                suggestedOptions.put("dateFormat", "yyyy-MM-dd");
-            }
-            case "SALARY_ENTITLEMENTS" -> {
-                suggestedColumns.putAll(suggestSalaryEntitlementColumns(headers));
-                suggestedOptions.put("layout", detectLayout(headers));
-                suggestedOptions.put("dateFormat", "yyyy-MM-dd");
-            }
-            case "PAYROLL_HISTORY" -> {
-                suggestedColumns.putAll(suggestPayrollHistoryColumns(headers));
-                suggestedOptions.put("layout", detectLayout(headers));
-                suggestedOptions.put("dateFormat", "yyyy-MM-dd");
-            }
-            case "SALARY_REVISIONS" -> {
-                suggestedColumns.putAll(suggestSalaryRevisionColumns(headers));
-                suggestedOptions.put("dateFormat", "yyyy-MM-dd");
-            }
-            case "EMPLOYEE_MASTER" -> {
-                suggestedColumns.putAll(suggestEmployeeMasterColumns(headers));
-                suggestedOptions.put("dateFormat", "yyyy-MM-dd");
-            }
+        String signature = structureSignature(headers);
+
+        if (importType == null) {
+            return new ImportJobSheetAutoMapResponse(
+                    jobId, sheetIndex, sheetName, null,
+                    toInteger(record.get("header_row_number")),
+                    signature, List.of(), List.of(),
+                    "Classify this sheet as a known type before mapping columns."
+            );
         }
+
+        Map<String, List<String>> samples = readSamples(
+                (String) record.get("file_key"),
+                sheetIndex,
+                toInteger(record.get("header_row_number")),
+                headers
+        );
+
+        List<ImportJobSheetAutoMapResponse.FieldSuggestion> fields =
+                ColumnMappingCatalog.suggestFields(importType, headers, samples)
+                        .stream()
+                        .map(item -> new ImportJobSheetAutoMapResponse.FieldSuggestion(
+                                item.field(),
+                                item.label(),
+                                item.sourceHeader(),
+                                item.confidence(),
+                                item.reason(),
+                                item.identifier()
+                        ))
+                        .toList();
+
+        List<ImportJobSheetAutoMapResponse.ComponentSuggestion> components =
+                WIDE_TYPES.contains(importType)
+                        ? suggestComponents(headers)
+                        : List.of();
 
         return new ImportJobSheetAutoMapResponse(
-            jobId, sheetIndex, (String) sheet.get("sheet_name"),
-            suggestedType, suggestedColumns, suggestedOptions,
-            "Auto-mapping suggestions generated. Review and adjust before confirming."
+                jobId, sheetIndex, sheetName, importType,
+                toInteger(record.get("header_row_number")),
+                signature, fields, components,
+                "Suggested mapping generated. Review REVIEW items and confirm before saving."
         );
     }
 
-    private String detectLayout(List<String> headers) {
-        // Check if component columns are spread across many columns (WIDE)
-        // vs single componentCode + amount columns (LONG)
-        long componentLikeCount = headers.stream()
-            .filter(h -> h.toUpperCase().contains("PAY") || h.toUpperCase().contains("ALLOW") 
-                      || h.toUpperCase().contains("DEDUCT") || h.toUpperCase().contains("TAX")
-                      || h.toUpperCase().contains("PF") || h.toUpperCase().contains("HRA")
-                      || h.toUpperCase().contains("DA") || h.toUpperCase().contains("ADV"))
-            .count();
-        return componentLikeCount >= 5 ? "WIDE" : "LONG";
-    }
+    private List<ImportJobSheetAutoMapResponse.ComponentSuggestion> suggestComponents(
+            List<String> headers
+    ) {
+        Map<String, String> codeByNormalized = new LinkedHashMap<>();
 
-    private Map<String, Object> suggestEmployeeMasterColumns(List<String> headers) {
-        Map<String, Object> mapping = new LinkedHashMap<>();
-        String[] identityFields = {"hrmsId", "aadhaar", "pan", "contact", "email", "pf", "nps", "gpf"};
-        String[] nameFields = {"employeeName", "name", "empName", "fullName"};
-        String[] divisionFields = {"division", "divisionId", "divCode", "divisionCode"};
-        String[] otherFields = {"designation", "wing", "dateOfJoining", "dateOfBirth", 
-                               "employmentType", "payScale", "basicPay", "bankAccount", 
-                               "ifscCode", "bankName", "branch", "employeeStatus"};
+        jdbcTemplate.query(
+                """
+                SELECT component_code, component_name
+                FROM public.salary_components
+                WHERE status = 'ACTIVE'
+                """,
+                rs -> {
+                    String code = rs.getString("component_code");
+                    String name = rs.getString("component_name");
 
-        for (String field : identityFields) {
-            String match = findBestMatch(headers, field);
-            if (match != null) mapping.put(field, match);
-        }
-        for (String field : nameFields) {
-            String match = findBestMatch(headers, field);
-            if (match != null) { mapping.put("employeeName", match); break; }
-        }
-        for (String field : divisionFields) {
-            String match = findBestMatch(headers, field);
-            if (match != null) { 
-                if (field.contains("Id") || field.contains("Code")) mapping.put("divisionId", match);
-                else mapping.put("division", match);
-                break; 
-            }
-        }
-        for (String field : otherFields) {
-            String match = findBestMatch(headers, field);
-            if (match != null) mapping.put(field, match);
-        }
-        return mapping;
-    }
+                    codeByNormalized.putIfAbsent(
+                            ColumnMappingCatalog.normalize(code), code);
 
-    private Map<String, Object> suggestSalaryEntitlementColumns(List<String> headers) {
-        Map<String, Object> mapping = new LinkedHashMap<>();
-        String[] identityFields = {"hrmsId", "aadhaar", "pan", "contact", "email", "pf", "nps", "gpf"};
-        
-        for (String field : identityFields) {
-            String match = findBestMatch(headers, field);
-            if (match != null) mapping.put(field, match);
-        }
-        
-        // For LONG layout
-        String compCodeMatch = findBestMatch(headers, "componentCode", "salaryComponent", "component");
-        String amountMatch = findBestMatch(headers, "amount", "value", "salaryAmount");
-        String categoryMatch = findBestMatch(headers, "category", "type", "earningDeduction");
-        String effFromMatch = findBestMatch(headers, "effectiveFrom", "effectiveDate", "fromDate");
-        String effToMatch = findBestMatch(headers, "effectiveTo", "toDate", "endDate");
-        
-        if (compCodeMatch != null) mapping.put("componentCode", compCodeMatch);
-        if (amountMatch != null) mapping.put("amount", amountMatch);
-        if (categoryMatch != null) mapping.put("category", categoryMatch);
-        if (effFromMatch != null) mapping.put("effectiveFrom", effFromMatch);
-        if (effToMatch != null) mapping.put("effectiveTo", effToMatch);
-        
-        return mapping;
-    }
-
-    private Map<String, Object> suggestComponentColumns(List<String> headers) {
-        // For WIDE layout - find all component-like columns
-        Map<String, String> componentColumns = new LinkedHashMap<>();
-        Set<String> knownComponents = Set.of(
-            "BASIC_PAY", "T_SPL_INCREMENT", "FP_PP", "SPL_PAY_G_MITRA", "DA_33_67",
-            "HRA_24", "ADDL_HRA", "CCA", "PETROL_AUTO_ALLOW", "WASHING_ALLOW",
-            "BOARD_FORMATION_DAY", "IR_5_2023", "DA_ARREARS_26_39", "DA_ARREARS_30_03", "DA_ARREARS_33_67",
-            "GPF_EPF", "COURT_ATCH", "PENSION_SCHEME", "TSGLIF", "GIS", "PRC_2020_NPS",
-            "ELECT_CHAR", "FESTIVAL_ADV", "EDCN_ADV", "VEHICLE_ADV", "MOPED_ADV",
-            "EXCESS_SALARY_RECOVERY", "EPF_12_PERCENT", "SBI_LIFE_INSURANCE", "ONE_DAY_SALARY",
-            "MARRIAGE_LOAN", "MGB_AN", "PROF_TAX", "INCOME_TAX", "EPF_PRC_ARREARS",
-            "PRC_EXCESS_RECOVERY", "MGB_PC", "TELANGANA_HARITHA_NIDHI",
-            "CCA_RECOVERY_DARUSSALAM", "SBH_ANAND_NAGAR", "FLAG_DAY_2025", "LIC"
+                    if (name != null && !name.isBlank()) {
+                        codeByNormalized.putIfAbsent(
+                                ColumnMappingCatalog.normalize(name), code);
+                    }
+                }
         );
+
+        List<ImportJobSheetAutoMapResponse.ComponentSuggestion> result =
+                new ArrayList<>();
 
         for (String header : headers) {
-            String normalized = header.trim().toUpperCase().replaceAll("[^A-Z0-9]+", "_");
-            if (knownComponents.contains(normalized)) {
-                componentColumns.put(normalized, header);
+            if (header == null || header.isBlank()) {
+                continue;
             }
+
+            String code = codeByNormalized.get(
+                    ColumnMappingCatalog.normalize(header));
+
+            if (code == null) {
+                continue;
+            }
+
+            result.add(new ImportJobSheetAutoMapResponse.ComponentSuggestion(
+                    code,
+                    header,
+                    ColumnMappingCatalog.REVIEW,
+                    "Header matches salary component " + code
+                            + " — confirm before saving."
+            ));
         }
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        if (!componentColumns.isEmpty()) {
-            result.put("componentColumns", componentColumns);
-        }
         return result;
     }
 
-    private Map<String, Object> suggestPayrollHistoryColumns(List<String> headers) {
-        Map<String, Object> mapping = new LinkedHashMap<>();
-        String[] identityFields = {"hrmsId", "aadhaar", "pan", "contact", "email", "pf", "nps", "gpf"};
-        for (String field : identityFields) {
-            String match = findBestMatch(headers, field);
-            if (match != null) mapping.put(field, match);
-        }
-        
-        String periodMatch = findBestMatch(headers, "period", "payPeriod", "monthYear");
-        String monthMatch = findBestMatch(headers, "payrollMonth", "month");
-        String yearMatch = findBestMatch(headers, "payrollYear", "year");
-        String compCodeMatch = findBestMatch(headers, "componentCode", "component");
-        String amountMatch = findBestMatch(headers, "amount", "value");
-        String grossMatch = findBestMatch(headers, "gross", "grossSalary");
-        String netMatch = findBestMatch(headers, "net", "netSalary");
-        String dedMatch = findBestMatch(headers, "totalDeductions", "deductions");
-        
-        if (periodMatch != null) mapping.put("period", periodMatch);
-        if (monthMatch != null) mapping.put("payrollMonth", monthMatch);
-        if (yearMatch != null) mapping.put("payrollYear", yearMatch);
-        if (compCodeMatch != null) mapping.put("componentCode", compCodeMatch);
-        if (amountMatch != null) mapping.put("amount", amountMatch);
-        if (grossMatch != null) mapping.put("gross", grossMatch);
-        if (netMatch != null) mapping.put("net", netMatch);
-        if (dedMatch != null) mapping.put("totalDeductions", dedMatch);
-        
-        return mapping;
-    }
+    private Map<String, List<String>> readSamples(
+            String fileKey,
+            int sheetIndex,
+            Integer headerRowNumber,
+            List<String> headers
+    ) throws IOException {
 
-    private Map<String, Object> suggestSalaryRevisionColumns(List<String> headers) {
-        Map<String, Object> mapping = new LinkedHashMap<>();
-        String[] identityFields = {"hrmsId", "aadhaar", "pan", "contact", "email", "pf", "nps", "gpf"};
-        for (String field : identityFields) {
-            String match = findBestMatch(headers, field);
-            if (match != null) mapping.put(field, match);
-        }
-        
-        String effFromMatch = findBestMatch(headers, "effectiveFrom", "effectiveDate", "fromDate");
-        String compCodeMatch = findBestMatch(headers, "componentCode", "component");
-        String oldAmtMatch = findBestMatch(headers, "oldAmount", "previousAmount", "oldBasic");
-        String newAmtMatch = findBestMatch(headers, "newAmount", "revisedAmount", "newBasic");
-        String amountMatch = findBestMatch(headers, "amount", "incrementAmount");
-        String reasonMatch = findBestMatch(headers, "reason", "remarks", "sanctionOrder");
-        
-        if (effFromMatch != null) mapping.put("effectiveFrom", effFromMatch);
-        if (compCodeMatch != null) mapping.put("componentCode", compCodeMatch);
-        if (oldAmtMatch != null) mapping.put("oldAmount", oldAmtMatch);
-        if (newAmtMatch != null) mapping.put("newAmount", newAmtMatch);
-        if (amountMatch != null) mapping.put("amount", amountMatch);
-        if (reasonMatch != null) mapping.put("reason", reasonMatch);
-        
-        return mapping;
-    }
+        Map<String, List<String>> samples = new LinkedHashMap<>();
 
-    private String findBestMatch(List<String> headers, String... candidates) {
-        for (String candidate : candidates) {
-            String normalizedCandidate = candidate.toUpperCase().replaceAll("[^A-Z0-9]+", "_");
-            for (String header : headers) {
-                String normalizedHeader = header.trim().toUpperCase().replaceAll("[^A-Z0-9]+", "_");
-                if (normalizedHeader.equals(normalizedCandidate) || 
-                    normalizedHeader.contains(normalizedCandidate) ||
-                    normalizedCandidate.contains(normalizedHeader)) {
-                    return header;
+        if (fileKey == null || headerRowNumber == null || headerRowNumber < 1) {
+            return samples;
+        }
+
+        Path filePath = storageRoot.resolve(fileKey).normalize();
+
+        if (!filePath.startsWith(storageRoot) || !Files.isRegularFile(filePath)) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "The stored workbook could not be found."
+            );
+        }
+
+        DataFormatter formatter = new DataFormatter();
+
+        // Stream, not File: a File-opened package is read/write, so POI saves it
+        // back on close and overwrites the stored source workbook. The stream
+        // open is read-only and still covers .xls and .xlsx.
+        try (java.io.InputStream workbookStream = java.nio.file.Files.newInputStream(filePath);
+             Workbook workbook = WorkbookFactory.create(workbookStream)) {
+
+            if (sheetIndex >= workbook.getNumberOfSheets()) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Worksheet index does not exist in the workbook."
+                );
+            }
+
+            Sheet sheet = workbook.getSheetAt(sheetIndex);
+            int headerIndex = headerRowNumber - 1;
+            int lastRow = Math.min(sheet.getLastRowNum(), headerIndex + MAX_SCAN_ROWS);
+
+            for (int rowIndex = headerIndex + 1; rowIndex <= lastRow; rowIndex++) {
+                Row row = sheet.getRow(rowIndex);
+
+                if (row == null) {
+                    continue;
+                }
+
+                for (int column = 0; column < headers.size(); column++) {
+                    Cell cell = row.getCell(
+                            column, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+
+                    if (cell == null) {
+                        continue;
+                    }
+
+                    String value = formatter.formatCellValue(cell).trim();
+
+                    if (value.isEmpty()) {
+                        continue;
+                    }
+
+                    List<String> columnSamples = samples.computeIfAbsent(
+                            headers.get(column), ignored -> new ArrayList<>());
+
+                    if (columnSamples.size() < SAMPLE_ROWS) {
+                        columnSamples.add(value);
+                    }
                 }
             }
         }
+
+        return samples;
+    }
+
+    private String resolveType(String confirmedType, String suggestedType) {
+        if (confirmedType != null
+                && ColumnMappingCatalog.supportsType(confirmedType)) {
+            return confirmedType;
+        }
+
+        if (suggestedType != null
+                && ColumnMappingCatalog.supportsType(suggestedType)) {
+            return suggestedType;
+        }
+
         return null;
+    }
+
+    /** Stable fingerprint of a sheet's column structure, used for profiles. */
+    static String structureSignature(List<String> headers) {
+        StringBuilder builder = new StringBuilder();
+
+        for (String header : headers) {
+            if (header == null) {
+                continue;
+            }
+
+            builder.append(ColumnMappingCatalog.normalize(header)).append('|');
+        }
+
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(
+                    builder.toString().getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException(
+                    "SHA-256 is unavailable in this Java runtime.", ex);
+        }
+    }
+
+    private static Integer toInteger(Object value) {
+        return value == null ? null : ((Number) value).intValue();
     }
 }

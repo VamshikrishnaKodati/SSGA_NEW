@@ -25,6 +25,7 @@ import {
   PageHeader,
   StatusChip,
 } from '../components/ui.jsx'
+import AdminDashboardAnalytics from './AdminDashboardAnalytics.jsx'
 
 const DASHBOARDS = {
   [ROLES.SYSTEM_ADMIN]: SystemAdminDashboard,
@@ -76,7 +77,7 @@ function useRoleDashboardData(ability, onSessionExpired) {
     add('reports', ability.has('report.view'), () => reportApi.divisionSummary())
     add(
       'statements',
-      ability.hasAny('statement.view', 'statement.download'),
+      ability.hasAny('statement.view', 'statement.download', 'payslip.view_self'),
       () => statementApi.list(),
     )
     add('audit', ability.has('audit.view'), () => auditApi.list({ limit: 5, offset: 0 }))
@@ -257,7 +258,9 @@ function SystemAdminDashboard({ user, ability, data, errors, onNavigate }) {
       { label: 'Employees in scope', value: formatNumber(employees.length), icon: 'users', route: 'employees' },
       { label: 'Divisions in scope', value: formatNumber(scopeCount), icon: 'building', route: 'organization' },
       { label: 'Service health', value: data.health ? 'Reachable' : 'Not checked', foot: data.health?.status || 'Latest status check', icon: 'server', route: 'system' },
-    ]} />
+    ]}>
+      <AdminDashboardAnalytics data={data} ability={ability} />
+    </DashboardFrame>
   )
 }
 
@@ -310,6 +313,7 @@ function OrganizationAdminDashboard({ user, ability, data, errors, onNavigate })
       { label: 'Wings', value: formatNumber(wingCount), foot: wingCount ? 'Wings represented in your scope' : 'No wings in scope', icon: 'layers', route: 'organization' },
       { label: 'Divisions', value: formatNumber(divisions.length), foot: divisions.length ? 'Divisions in your organization' : 'No divisions in scope', icon: 'building', route: 'organization' },
     ]}>
+      <AdminDashboardAnalytics data={data} ability={ability} />
       <section className="panel section-gap" aria-label="Payroll context">
         <div className="panel-head">
           <div>
@@ -372,7 +376,9 @@ function WingAdminDashboard({ user, ability, data, errors, onNavigate }) {
       { label: 'Divisions in scope', value: formatNumber((data.divisions || []).length), icon: 'building', route: 'organization' },
       { label: 'Open payroll batches', value: formatNumber(batches.filter((batch) => batch.status !== 'FINALIZED').length), icon: 'calculator', route: 'payroll' },
       { label: 'Awaiting approval', value: formatNumber(statusCount(batches, 'SUBMITTED')), icon: 'clock', route: 'payroll' },
-    ]} />
+    ]}>
+      <AdminDashboardAnalytics data={data} ability={ability} />
+    </DashboardFrame>
   )
 }
 
@@ -390,7 +396,9 @@ function DivisionAdminDashboard({ user, ability, data, errors, onNavigate }) {
       { label: 'Payroll batches', value: formatNumber(batches.length), icon: 'calculator', route: 'payroll' },
       { label: 'Awaiting approval', value: formatNumber(statusCount(batches, 'SUBMITTED')), icon: 'clock', route: 'payroll' },
       { label: 'Rejected batches', value: formatNumber(statusCount(batches, 'REJECTED')), icon: 'warning', route: 'payroll' },
-    ]} />
+    ]}>
+      <AdminDashboardAnalytics data={data} ability={ability} />
+    </DashboardFrame>
   )
 }
 
@@ -454,7 +462,7 @@ function EmployeeDashboard({ user, ability, data, errors, onNavigate }) {
     (left, right) => String(right.generatedAt || '').localeCompare(String(left.generatedAt || '')),
   )[0]
   const links = linkTools(onNavigate, ability, [
-    { route: 'statements', label: 'My salary statements', description: 'View and download statements issued to you', icon: 'file', permissions: ['statement.view', 'statement.download'] },
+    { route: 'statements', label: 'My salary statements', description: 'View and download statements issued to you', icon: 'file', permissions: ['payslip.view_self', 'statement.view', 'statement.download'] },
     { route: 'profile', label: 'My profile', description: 'Review your linked employee information', icon: 'badge', permissions: ['employee.view'] },
     { route: 'reports', label: 'My salary history', description: 'Open your salary history', icon: 'history', permissions: ['report.view'] },
   ])

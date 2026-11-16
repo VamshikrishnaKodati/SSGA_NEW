@@ -44,6 +44,11 @@ const ROLE_ALIASES = {
   OFF_PAYROLL: ROLES.PAYROLL_OPERATOR,
   HR_ADMINISTRATOR: ROLES.HR_ADMIN,
   IMPORT_OPERATOR: ROLES.DATA_IMPORT_OPERATOR,
+  // Spec role codes from migration 41 that differ from the canonical names
+  // above. Without these, canonicalRole() returns ROLE_APPROVING_AUTH, which
+  // matches no ROLES entry and no dashboard key.
+  APPROVING_AUTH: ROLES.APPROVING_AUTHORITY,
+  FINANCE_FINALIZER: ROLES.PAYROLL_FINALIZER,
 }
 
 export function canonicalRole(roleCode) {
@@ -70,41 +75,8 @@ const ROLE_PRIORITY = [
   ROLES.EMPLOYEE_SELF,
 ]
 
-// The full permission catalogue defined in database/02_security.sql.
-// Only these strings are ever granted by the backend.
-export const PERMISSIONS = [
-  'organization.view',
-  'organization.manage',
-  'wing.view',
-  'wing.manage',
-  'division.view',
-  'division.manage',
-  'employee.view',
-  'employee.create',
-  'employee.update',
-  'employee.hrms_replace',
-  'salary.view',
-  'salary.manage',
-  'salary.prepare',
-  'payroll.view',
-  'payroll.prepare',
-  'payroll.verify',
-  'payroll.submit',
-  'payroll.approve',
-  'payroll.finalize',
-  'payroll.reopen',
-  'payroll.period.manage',
-  'statement.view',
-  'statement.generate',
-  'statement.reissue',
-  'statement.download',
-  'report.view',
-  'export.download',
-  'user.manage',
-  'scope.manage',
-  'audit.view',
-  'import.commit',
-]
+// The permission catalogue is served by GET /api/admin/permissions so the UI
+// can never drift from the register seeded in database/41_document_rbac_alignment.sql.
 
 export function createAbility(user) {
   const authorities = Array.isArray(user?.authorities) ? user.authorities : []
@@ -175,6 +147,7 @@ export const NAV_GROUPS = [
           'statement.generate',
           'statement.reissue',
           'payroll.finalize',
+          'payslip.view_self',
         ],
       },
       {
@@ -202,6 +175,7 @@ export const NAV_GROUPS = [
         any: ['employee.view'],
       },
       { id: 'profile', label: 'My profile', icon: 'badge', always: true },
+      { id: 'my-access', label: 'My access', icon: 'shield', always: true },
     ],
   },
   {
@@ -237,8 +211,13 @@ export const NAV_GROUPS = [
         id: 'access',
         label: 'User management',
         icon: 'shield',
-        any: ['user.manage', 'scope.manage'],
-        availability: 'partial-endpoint',
+        any: ['user.manage', 'user.view', 'user.create', 'user.update', 'scope.bind'],
+      },
+      {
+        id: 'roles',
+        label: 'Role management',
+        icon: 'layers',
+        any: ['role.assign', 'role.view'],
       },
       {
         id: 'audit',

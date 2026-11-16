@@ -29,6 +29,14 @@ class DivisionMatcherTest {
     }
 
     @Test
+    void treatsArabicAndRomanNumeralsAsEquivalent() {
+        assertEquals(21, DivisionMatcher.resolve(
+                DIVISIONS, "O&M Division 1").id());
+        assertEquals(22, DivisionMatcher.resolve(
+                DIVISIONS, "O&M Division No.2").id());
+    }
+
+    @Test
     void resolvesCodesAndIds() {
         assertEquals(21, DivisionMatcher.resolve(
                 DIVISIONS, "OM-DIV-01").id());

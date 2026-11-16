@@ -25,7 +25,7 @@ public class SalaryStatementController {
 
     @PostMapping("/api/payroll/batches/{batchId}/statements")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('statement.generate') "
             + "or hasAuthority('payroll.finalize')"
     )
@@ -39,7 +39,7 @@ public class SalaryStatementController {
 
     @PostMapping("/api/statements/{statementId}/reissue")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('statement.reissue')"
     )
     public ResponseEntity<SalaryStatementResponse> reissue(
@@ -50,7 +50,7 @@ public class SalaryStatementController {
 
     @GetMapping("/api/statements")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('statement.view') "
             + "or hasAuthority('statement.download')"
     )
@@ -65,7 +65,7 @@ public class SalaryStatementController {
 
     @GetMapping("/api/statements/{statementId}")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('statement.view') "
             + "or hasAuthority('statement.download')"
     )
@@ -77,7 +77,7 @@ public class SalaryStatementController {
 
     @GetMapping("/api/statements/{statementId}/download")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('statement.download')"
     )
     public ResponseEntity<byte[]> download(@PathVariable long statementId) {

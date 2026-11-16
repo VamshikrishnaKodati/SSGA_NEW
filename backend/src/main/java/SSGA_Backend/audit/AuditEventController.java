@@ -21,7 +21,7 @@ public class AuditEventController {
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('audit.view')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('audit.view')")
     public ResponseEntity<AuditEventPageResponse> list(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,

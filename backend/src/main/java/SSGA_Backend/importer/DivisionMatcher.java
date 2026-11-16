@@ -3,6 +3,7 @@ package SSGA_Backend.importer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Resolves a division reference from an uploaded workbook to a division row.
@@ -13,6 +14,33 @@ import java.util.Locale;
 final class DivisionMatcher {
 
     private static final int MIN_SCORE = 80;
+
+    private static final Map<String, String> ROMAN_NUMERALS = Map.ofEntries(
+            Map.entry("I", "1"),
+            Map.entry("II", "2"),
+            Map.entry("III", "3"),
+            Map.entry("IV", "4"),
+            Map.entry("V", "5"),
+            Map.entry("VI", "6"),
+            Map.entry("VII", "7"),
+            Map.entry("VIII", "8"),
+            Map.entry("IX", "9"),
+            Map.entry("X", "10"),
+            Map.entry("XI", "11"),
+            Map.entry("XII", "12"),
+            Map.entry("XIII", "13"),
+            Map.entry("XIV", "14"),
+            Map.entry("XV", "15"),
+            Map.entry("XVI", "16"),
+            Map.entry("XVII", "17"),
+            Map.entry("XVIII", "18"),
+            Map.entry("XIX", "19"),
+            Map.entry("XX", "20"),
+            Map.entry("XXI", "21"),
+            Map.entry("XXII", "22"),
+            Map.entry("XXIII", "23"),
+            Map.entry("XXIV", "24")
+    );
 
     private DivisionMatcher() {
     }
@@ -103,7 +131,7 @@ final class DivisionMatcher {
 
         for (String token : cleaned.split("\\s+")) {
             if (!"NO".equals(token)) {
-                result.append(token);
+                result.append(ROMAN_NUMERALS.getOrDefault(token, token));
             }
         }
 

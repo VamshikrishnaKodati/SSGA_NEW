@@ -134,13 +134,14 @@ public class ImportJobWorkflowService {
             throw conflict("The job could not be submitted. Refresh and retry.");
         }
 
+        String approvers = approverSummary(jobId);
         recordEvent(jobId, null, "SUBMIT", job.status(),
-                "AWAITING_APPROVAL", null);
+                "AWAITING_APPROVAL", "Approval required from: " + approvers);
         audit(jobId, "IMPORT_SUBMIT", job.status(),
-                "AWAITING_APPROVAL", null);
+                "AWAITING_APPROVAL", "Approval required from: " + approvers);
 
         return loadResponse(jobId,
-                "Submitted for approval. A different user must approve.");
+                "Submitted for approval. Approval required from: " + approvers + ".");
     }
 
     @Transactional(transactionManager = "dataSourceTransactionManager")
@@ -295,7 +296,7 @@ public class ImportJobWorkflowService {
                        e.actor_user_id, u.display_name AS actor_name,
                        e.details::text AS details, e.created_at
                 FROM public.import_job_workflow_events e
-                LEFT JOIN public.users u ON u.id = e.actor_user_id
+                LEFT JOIN app.find_assignable_users() u ON u.user_id = e.actor_user_id
                 WHERE e.import_job_id = ?
                 ORDER BY e.created_at DESC, e.id DESC
                 """,
@@ -1832,11 +1833,19 @@ public class ImportJobWorkflowService {
         }
 
         Map<Long, String> authorizedDivisions = new HashMap<>();
+        List<DivisionMatcher.Candidate> authorizedDivisionCandidates =
+                new ArrayList<>();
         for (Map<String, Object> division : jdbcTemplate.queryForList(
-                "SELECT id, name FROM public.divisions")) {
-            authorizedDivisions.put(
-                    ((Number) division.get("id")).longValue(),
-                    (String) division.get("name")
+                "SELECT id, name, code FROM public.divisions")) {
+            long id = ((Number) division.get("id")).longValue();
+            String name = (String) division.get("name");
+            authorizedDivisions.put(id, name);
+            authorizedDivisionCandidates.add(
+                    new DivisionMatcher.Candidate(
+                            id,
+                            name,
+                            (String) division.get("code")
+                    )
             );
         }
 
@@ -1921,7 +1930,8 @@ public class ImportJobWorkflowService {
                         sourceRowNumber);
                 validateHistorySourceDivision(
                         row, headerIndexes, formatter, columns,
-                        authorizedDivisions, sourceRowNumber);
+                        authorizedDivisions, authorizedDivisionCandidates,
+                        sourceRowNumber);
                 BigDecimal amount = readHistoryAmount(
                         row, headerIndexes.get(columns.get("amount")),
                         sourceRowNumber, "amount");
@@ -2480,17 +2490,22 @@ public class ImportJobWorkflowService {
             DataFormatter formatter,
             Map<String, String> columns,
             Map<Long, String> authorizedDivisions,
+            List<DivisionMatcher.Candidate> authorizedDivisionCandidates,
             int sourceRowNumber
     ) {
         String divisionName = readText(
                 row, headerIndexes, formatter, columns.get("division"));
-        if (divisionName != null
-                && authorizedDivisions.values().stream().noneMatch(
-                        name -> normalize(name).equals(normalize(divisionName)))) {
-            throw historyRowConflict(
-                    sourceRowNumber,
-                    "Source division is outside your authorized scope."
-            );
+        if (divisionName != null) {
+            DivisionMatcher.Resolution resolution =
+                    DivisionMatcher.resolve(
+                            authorizedDivisionCandidates, divisionName);
+            if (!resolution.matched()
+                    || !authorizedDivisions.containsKey(resolution.id())) {
+                throw historyRowConflict(
+                        sourceRowNumber,
+                        "Source division is outside your authorized scope."
+                );
+            }
         }
 
         String divisionId = readText(
@@ -2739,6 +2754,26 @@ public class ImportJobWorkflowService {
                 currentUserId(),
                 details
         );
+    }
+
+    private String approverSummary(long jobId) {
+        List<String> names = jdbcTemplate.queryForList(
+                """
+                SELECT f.display_name
+                FROM public.import_job_assignments a
+                JOIN app.find_assignable_users() f ON f.user_id = a.user_id
+                WHERE a.import_job_id = ?
+                  AND a.assignment_role = 'APPROVER'
+                  AND a.is_active
+                ORDER BY f.display_name
+                """,
+                String.class,
+                jobId
+        );
+
+        return names.isEmpty()
+                ? "any authorized approver (payroll.approve)"
+                : String.join(", ", names);
     }
 
     private void audit(

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { importApi, mappingProfileApi, saveBlob } from '../services/api.js'
+import { divisionApi, importApi, mappingProfileApi, saveBlob } from '../services/api.js'
 import { formatAmount, formatDateTime, friendlyError, humanizeStatus } from '../lib/format.js'
+import { useLoader } from '../lib/useLoader.js'
 import { approveBlocked, finalizeBlocked, uploadRejection } from '../lib/importGuards.js'
 import {
   SHEET_TYPES,
@@ -87,6 +88,18 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
   const canDecide = ability.has('payroll.approve')
   const canFinalize = ability.has('payroll.finalize')
 
+  // Assignment pickers load only when the review step is actually open.
+  const assignableUsers = useLoader(
+    () => importApi.assignableUsers(),
+    [],
+    { enabled: step === 3 && canAssign },
+  )
+  const divisions = useLoader(
+    () => divisionApi.myScope(),
+    [],
+    { enabled: step === 3 && canAssign },
+  )
+
   const actorId = user?.userId
   const identity = {
     uploadedBy: job?.uploadedBy ?? analysis?.uploadedBy ?? workflow?.uploadedBy,
@@ -96,7 +109,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
   const isApproverBlocked = approveBlocked(actorId, identity)
   const isFinalizerBlocked = finalizeBlocked(actorId, identity)
 
-  function guard(fn) {
+  function guard(action, fn) {
     return async (...args) => {
       setError('')
       setMessage('')
@@ -104,7 +117,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
         return await fn(...args)
       } catch (requestError) {
         if (requestError?.status === 401 && onSessionExpired) onSessionExpired()
-        setError(friendlyError(requestError))
+        setError(friendlyError(requestError, action))
         return null
       } finally {
         setBusy('')
@@ -138,7 +151,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     setSelectedSheet(authoredSheets?.[0]?.sheetIndex ?? null)
   }
 
-  const upload = guard(async (file) => {
+  const upload = guard("Upload", async (file) => {
     const rejection = uploadRejection(file)
     if (rejection) {
       setError(rejection)
@@ -176,7 +189,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     setMessage(`Uploaded and analysed ${response.fileName}. Review the suggested mapping.`)
   })
 
-  const loadById = guard(async (id) => {
+  const loadById = guard("Open job", async (id) => {
     setBusy('analyze')
     const response = await importApi.analyze(id)
     const progressResponse = await importApi.progress(id)
@@ -264,7 +277,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     return () => { active = false }
   }, [step, selectedSheet, job?.jobId, previews])
 
-  const autoMapSheet = guard(async (sheetIndex) => {
+  const autoMapSheet = guard("Auto-map", async (sheetIndex) => {
     setBusy(`automap-${sheetIndex}`)
     const response = await importApi.autoMap(job.jobId, sheetIndex)
     setDrafts((previous) => ({
@@ -280,21 +293,21 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     setMessage(`Auto-mapped ${matched} field(s) for sheet ${sheetIndex}. Review anything flagged for review.`)
   })
 
-  const showPreview = guard(async (sheetIndex) => {
+  const showPreview = guard("Load preview", async (sheetIndex) => {
     setBusy(`preview-${sheetIndex}`)
     const response = await importApi.preview(job.jobId, sheetIndex)
     setPreviews((previous) => ({ ...previous, [sheetIndex]: response }))
     setMessage(`Preview loaded for sheet ${sheetIndex}.`)
   })
 
-  const downloadIssues = guard(async (sheetIndex) => {
+  const downloadIssues = guard("Download issues", async (sheetIndex) => {
     setBusy(`issues-${sheetIndex}`)
     const blob = await importApi.downloadIssues(job.jobId, sheetIndex)
     saveBlob(blob, `import-job-${job.jobId}-sheet-${sheetIndex}-errors.csv`)
     setMessage('Error report downloaded.')
   })
 
-  const saveProfile = guard(async (sheetIndex, name) => {
+  const saveProfile = guard("Save mapping profile", async (sheetIndex, name) => {
     const draft = drafts[sheetIndex]
     const autoMap = draft.autoMapResult
     if (!autoMap?.importType || !autoMap?.structureSignature) {
@@ -326,7 +339,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     setMessage(`Applied mapping profile "${profile.name}".`)
   }
 
-  const analyze = guard(async () => {
+  const analyze = guard("Analyse workbook", async () => {
     setBusy('analyze')
     const response = await importApi.analyze(job.jobId)
     const progressResponse = await importApi.progress(job.jobId)
@@ -341,7 +354,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     setMessage('Workbook analysed. Classify each sheet and map its columns.')
   })
 
-  const saveMapping = guard(async (sheetIndex) => {
+  const saveMapping = guard("Save mapping", async (sheetIndex) => {
     const draft = drafts[sheetIndex]
     setBusy(`map-${sheetIndex}`)
     const response = await importApi.confirmMapping(job.jobId, sheetIndex, buildMappingPayload(draft))
@@ -349,7 +362,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     setMessage(`Mapping saved for sheet ${sheetIndex}.`)
   })
 
-  const validateSheet = guard(async (sheetIndex) => {
+  const validateSheet = guard("Validate sheet", async (sheetIndex) => {
     const draft = drafts[sheetIndex]
     const blocker = validationBlocker(draft)
     if (blocker) {
@@ -366,7 +379,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     setMessage(`Validation complete: ${response.validRows} valid · ${response.errorRows} error · ${response.warningRows} warning.`)
   })
 
-  const saveAllMappings = guard(async (nextStep = null) => {
+  const saveAllMappings = guard("Save mappings", async (nextStep = null) => {
     if (!job || !analysis) {
       throw new Error('Upload and analyse a workbook first.')
     }
@@ -402,7 +415,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     if (nextStep !== null) setStep(nextStep)
   })
 
-  const validateAllSheets = guard(async () => {
+  const validateAllSheets = guard("Validate workbook", async () => {
     if (!job || !analysis) {
       throw new Error('Upload and analyse a workbook first.')
     }
@@ -442,7 +455,7 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     )
   })
 
-  const assign = guard(async (event) => {
+  const assign = guard("Save assignment", async (event) => {
     event.preventDefault()
     setBusy('assign')
     const response = await importApi.assign(job.jobId, {
@@ -455,7 +468,14 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     setMessage('Assignment recorded.')
   })
 
-  const runWorkflow = (label, fn, remarks) => guard(async () => {
+  const WORKFLOW_ACTIONS = {
+    Submit: 'Submit for approval',
+    Approve: 'Approve job',
+    Reject: 'Reject job',
+    Finalize: 'Import approved data',
+  }
+
+  const runWorkflow = (label, fn, remarks) => guard(WORKFLOW_ACTIONS[label] || label, async () => {
     setBusy(label)
     try {
       const response = await fn(remarks)
@@ -644,6 +664,11 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     0,
   )
   const validationReady = validationRun && validationErrorRows === 0
+  const warningIssues = importableSheets.flatMap((sheet) => (
+    (drafts[sheet.sheetIndex]?.validation?.issues || [])
+      .filter((issue) => issue.severity === 'WARNING')
+      .map((issue) => ({ ...issue, sheetName: sheet.sheetName }))
+  ))
   const submitted = SUBMITTED_STATUSES.has(job?.status)
   const finalized = IMPORT_IN_PROGRESS_STATUSES.has(job?.status)
   const completedSteps = {
@@ -672,6 +697,13 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     if (index === step) return true
     if (submitted || finalized) return index >= 3 && index <= 4
     return index <= furthestStep
+  }
+
+  function stepLockReason(index) {
+    if (STEPS[index].key === 'import' && !submitted) {
+      return 'Submit for maker–checker approval to unlock the import.'
+    }
+    return undefined
   }
 
   function stepTone(index) {
@@ -760,7 +792,8 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
     </header>
   )
 
-  // Compact stepper - horizontal, minimal height
+  // Compact stepper - horizontal, minimal height. The next-action hint lives in
+  // the footer nav only, so it is not repeated here.
   const stepper = (
     <section className="import-stepper-bar" aria-label="Import steps">
       <ol className="import-stepper-list">
@@ -772,16 +805,17 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
               onClick={() => goToStep(index)}
               disabled={!canVisit(index)}
               aria-current={index === step ? 'step' : undefined}
+              title={stepLockReason(index)}
             >
               <span className="import-step-index">
                 {completedSteps[item.key] && index !== step ? <Icon name="check" size={12} /> : index + 1}
               </span>
               {item.label}
+              {item.key === 'import' && !submitted && <Icon name="lock" size={12} />}
             </button>
           </li>
         ))}
       </ol>
-      <div className="import-step-hint">{nextHint()}</div>
     </section>
   )
 
@@ -863,6 +897,11 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
               { key: 'sourceType', label: 'Source', render: (row) => row.sourceType ? humanizeStatus(row.sourceType) : '—' },
               { key: 'status', label: 'Status', render: (row) => <StatusChip value={row.status} /> },
               { key: 'validRows', label: 'Valid rows', align: 'right', render: (row) => row.validRows ?? '—' },
+              {
+                key: 'approvers',
+                label: 'Approvers',
+                render: (row) => row.approvers || (row.status === 'AWAITING_APPROVAL' ? 'Any authorized approver' : '—'),
+              },
               {
                 key: 'actions',
                 label: '',
@@ -1461,14 +1500,6 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
           <h3>Review &amp; assign</h3>
           <p>Confirm validation totals and assignment, then submit the job for maker–checker approval.</p>
         </div>
-        <button
-          type="button"
-          className="btn"
-          disabled={!canSubmit || busy === 'Submit' || submitted}
-          onClick={() => setDialog({ kind: 'submit' })}
-        >
-          <Icon name="check" size={14} /> {submitted ? 'Submitted' : busy === 'Submit' ? 'Submitting…' : 'Submit for approval'}
-        </button>
       </div>
       <div className="import-panel-body">
         <div className="import-job-details compact">
@@ -1480,6 +1511,26 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
           <div><span>Temp IDs</span><strong>{validationTempIdRows}</strong></div>
           <div><span>Status</span><strong><StatusChip value={job?.status} /></strong></div>
         </div>
+
+        {validationWarningRows > 0 && (
+          <details className="import-issues-drawer">
+            <summary>
+              Warning rows ({validationWarningRows}) · accepted, but check them before submitting
+            </summary>
+            <DataTable
+              columns={[
+                { key: 'sourceRowNumber', label: 'Row', align: 'right' },
+                { key: 'sheetName', label: 'Sheet' },
+                { key: 'fieldName', label: 'Field', render: (row) => row.fieldName || '—' },
+                { key: 'errorCode', label: 'Issue', render: (row) => <code>{row.errorCode}</code> },
+                { key: 'message', label: 'Warning' },
+                { key: 'guidance', label: 'Correction guidance', render: (row) => <span className="import-issue-guidance">{issueGuidance(row)}</span> },
+              ]}
+              rows={warningIssues}
+              rowKey={(row, index) => `${row.sourceRowNumber}-${row.errorCode}-${index}`}
+            />
+          </details>
+        )}
 
         {validationTempIdRows > 0 && (
           <p className="inline-meta" role="status">
@@ -1512,8 +1563,18 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
           ) : (
             <form className="inline-form compact" onSubmit={assign}>
               <label className="field">
-                <span>User ID</span>
-                <input type="number" min="1" value={assignment.userId} onChange={(event) => setAssignment((previous) => ({ ...previous, userId: event.target.value }))} />
+                <span>User</span>
+                <select
+                  value={assignment.userId}
+                  onChange={(event) => setAssignment((previous) => ({ ...previous, userId: event.target.value }))}
+                >
+                  <option value="">{assignableUsers.loading ? 'Loading users…' : 'Select user…'}</option>
+                  {assignableUsers.data?.map((option) => (
+                    <option key={option.userId} value={option.userId}>
+                      {option.displayName} ({option.username})
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>Assignment role</span>
@@ -1526,8 +1587,18 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
                 </select>
               </label>
               <label className="field">
-                <span>Division ID</span>
-                <input type="number" min="1" value={assignment.divisionId} onChange={(event) => setAssignment((previous) => ({ ...previous, divisionId: event.target.value }))} />
+                <span>Division</span>
+                <select
+                  value={assignment.divisionId}
+                  onChange={(event) => setAssignment((previous) => ({ ...previous, divisionId: event.target.value }))}
+                >
+                  <option value="">{divisions.loading ? 'Loading divisions…' : 'No division (job default)'}</option>
+                  {divisions.data?.map((division) => (
+                    <option key={division.id} value={division.id}>
+                      {division.name}{division.wingName ? ` · ${division.wingName}` : ''}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>Notes</span>
@@ -1537,6 +1608,10 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
                 {busy === 'assign' ? 'Saving…' : 'Save assignment'}
               </button>
             </form>
+          )}
+
+          {assignableUsers.error && (
+            <Alert kind="error">{friendlyError(assignableUsers.error, 'Load users')}</Alert>
           )}
 
           {assignmentResult && (
@@ -1551,6 +1626,17 @@ export default function ImportCenter({ user, ability, onSessionExpired }) {
               ]}
             />
           )}
+        </div>
+
+        <div className="detail-actions compact">
+          <button
+            type="button"
+            className="btn"
+            disabled={!canSubmit || busy === 'Submit' || submitted}
+            onClick={() => setDialog({ kind: 'submit' })}
+          >
+            <Icon name="check" size={14} /> {submitted ? 'Submitted' : busy === 'Submit' ? 'Submitting…' : 'Submit for approval'}
+          </button>
         </div>
       </div>
     </section>

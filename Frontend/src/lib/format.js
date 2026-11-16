@@ -120,22 +120,26 @@ export function humanizeStatus(status) {
     .join(' ')
 }
 
-export function friendlyError(error) {
+export function friendlyError(error, action) {
   const status = error?.status
+  let message
 
-  if (status === 400) return error?.message || 'The request was not valid.'
-  if (status === 401) return 'Your session has expired. Please sign in again.'
-  if (status === 403) {
-    return (
+  if (status === 400) message = error?.message || 'The request was not valid.'
+  else if (status === 401) message = 'Your session has expired. Please sign in again.'
+  else if (status === 403) {
+    message = (
       error?.message && error.message !== 'Access denied'
         ? error.message
         : 'You do not have permission to view or perform this action.'
     )
-  }
-  if (status === 404) return 'The requested record was not found or is not in your scope.'
-  if (status === 409) return error?.message || 'This action conflicts with the current state.'
-  if (status === 413) return 'The uploaded file is larger than the server limit.'
-  if (status === 500) return 'The server encountered an error. Please try again.'
+  } else if (status === 404) message = 'The requested record was not found or is not in your scope.'
+  else if (status === 409) message = error?.message || 'This action conflicts with the current state.'
+  else if (status === 413) message = 'The uploaded file is larger than the server limit.'
+  else if (status === 500) message = 'The server encountered an error. Please try again.'
+  else message = error?.message || 'Something went wrong. Please try again.'
 
-  return error?.message || 'Something went wrong. Please try again.'
+  // Only callers that name their action get the status appended; everything else
+  // keeps the plain message it rendered before.
+  if (!action) return message
+  return `${message} (${action} failed${status ? ` · HTTP ${status}` : ''})`
 }

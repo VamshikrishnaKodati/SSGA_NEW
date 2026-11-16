@@ -225,7 +225,7 @@ public class ImportJobReviewService {
                           ON st.id = stl.salary_transaction_id
                         WHERE st.payroll_batch_id IN (SELECT id FROM batch)
                           AND stl.component_code_snapshot IN (
-                              'BASIC', 'BASIC_PAY'
+                              'BASIC_PAY'
                           )
                     ), 0) AS basic_pay
                 """,

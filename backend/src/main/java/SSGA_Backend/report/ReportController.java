@@ -23,7 +23,7 @@ public class ReportController {
 
     @GetMapping("/payroll-summary")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('report.view')"
     )
     public ResponseEntity<PayrollSummaryResponse> payrollSummary(
@@ -35,7 +35,7 @@ public class ReportController {
 
     @GetMapping(value = "/payroll-summary.csv", produces = "text/csv")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('export.download')"
     )
     public ResponseEntity<String> payrollSummaryCsv(

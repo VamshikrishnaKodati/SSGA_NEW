@@ -94,6 +94,29 @@ public class AuthController {
             SsgaPrincipal user =
                     (SsgaPrincipal) authentication.getPrincipal();
 
+            // An account with exactly one role and scope has nothing to choose,
+            // so activate it during sign-in. Without this the principal keeps an
+            // empty authority list and the user can reach no data at all: the
+            // switcher in the header is only offered for two or more assignments.
+            if (user.getActiveRoleScopeId() == null) {
+                List<ActiveRoleAssignmentResponse> assignments =
+                        roleAssignmentService.findAssignments(user.getUserId());
+
+                if (assignments.size() == 1) {
+                    Authentication active = authenticateWith(
+                            user, assignments.get(0).assignmentId()
+                    );
+
+                    context.setAuthentication(active);
+                    SecurityContextHolder.setContext(context);
+                    securityContextRepository.saveContext(
+                            context, httpRequest, httpResponse
+                    );
+
+                    user = (SsgaPrincipal) active.getPrincipal();
+                }
+            }
+
             return ResponseEntity.ok(response(user));
 
         } catch (BadCredentialsException e) {
@@ -241,6 +264,37 @@ public class AuthController {
         return ResponseEntity.ok(response(user));
     }
 
+    /**
+     * The signed-in user's own roles, the scope each one reaches, and the
+     * effective permission set. This is what the "My access" page renders, and
+     * it is deliberately self-service: an administrator-only endpoint would
+     * leave ordinary employees with no way to see what they can do.
+     */
+    @GetMapping("/me/access")
+    public ResponseEntity<MyAccessResponse> myAccess(Authentication authentication) {
+        if (authentication == null
+                || !(authentication.getPrincipal() instanceof SsgaPrincipal user)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        }
+
+        List<ActiveRoleAssignmentResponse> assignments =
+                roleAssignmentService.findAssignments(user.getUserId());
+
+        List<String> permissions = user.getAuthorities().stream()
+                .map(granted -> granted.getAuthority())
+                .filter(code -> !code.startsWith("ROLE_"))
+                .sorted()
+                .toList();
+
+        return ResponseEntity.ok(new MyAccessResponse(assignments, permissions));
+    }
+
+    public record MyAccessResponse(
+            List<ActiveRoleAssignmentResponse> assignments,
+            List<String> permissions
+    ) {
+    }
+
     @PostMapping("/active-assignment")
     public ResponseEntity<LoginResponse> activateAssignment(
             @RequestBody ActivateAssignmentRequest request,
@@ -273,27 +327,52 @@ public class AuthController {
             );
         }
 
-        SsgaPrincipal activeUser = new SsgaPrincipal(
-                currentUser.getUserId(),
-                currentUser.getUsername(),
-                currentUser.getPassword(),
-                currentUser.isEnabled(),
-                currentUser.isAccountNonLocked(),
-                authorities.stream().map(SimpleGrantedAuthority::new).toList(),
-                request.assignmentId()
-        );
         Authentication activeAuthentication =
-                UsernamePasswordAuthenticationToken.authenticated(
-                        activeUser,
-                        null,
-                        activeUser.getAuthorities()
-                );
+                authenticateWith(currentUser, request.assignmentId());
+
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(activeAuthentication);
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, httpRequest, httpResponse);
 
-        return ResponseEntity.ok(response(activeUser));
+        return ResponseEntity.ok(response((SsgaPrincipal) activeAuthentication.getPrincipal()));
+    }
+
+    /**
+     * Builds the authenticated principal for one role and scope assignment. The
+     * assignment's own authority set is used, so a user holding several roles
+     * only ever carries the permissions of the one they are acting as.
+     */
+    private Authentication authenticateWith(SsgaPrincipal user, long assignmentId) {
+        List<String> authorities = roleAssignmentService.findAuthorities(
+                user.getUserId(),
+                assignmentId
+        );
+
+        if (authorities.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "The selected role and scope assignment is not active for this account."
+            );
+        }
+
+        List<SimpleGrantedAuthority> granted = authorities.stream()
+                .map(SimpleGrantedAuthority::new)
+                .toList();
+
+        return UsernamePasswordAuthenticationToken.authenticated(
+                new SsgaPrincipal(
+                        user.getUserId(),
+                        user.getUsername(),
+                        user.getPassword(),
+                        user.isEnabled(),
+                        user.isAccountNonLocked(),
+                        granted,
+                        assignmentId
+                ),
+                null,
+                granted
+        );
     }
 
     private LoginResponse response(SsgaPrincipal user) {

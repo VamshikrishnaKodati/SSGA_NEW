@@ -26,7 +26,7 @@ public class ImportMappingProfileController {
 
     @GetMapping
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"
@@ -39,7 +39,7 @@ public class ImportMappingProfileController {
 
     @PostMapping
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"
@@ -52,7 +52,7 @@ public class ImportMappingProfileController {
 
     @PatchMapping("/{id}")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"
@@ -66,7 +66,7 @@ public class ImportMappingProfileController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"

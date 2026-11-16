@@ -23,7 +23,7 @@ public class SalaryImportController {
             consumes = "multipart/form-data"
     )
     @org.springframework.security.access.prepost.PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"

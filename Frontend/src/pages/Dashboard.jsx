@@ -15,6 +15,7 @@ import {
   humanizeStatus,
 } from '../lib/format.js'
 import { ROLE_LABELS, ROLES } from '../lib/permissions.js'
+import { approvalAgeCounts } from '../lib/dashboardAnalytics.js'
 import {
   Alert,
   DataTable,
@@ -131,7 +132,11 @@ async function fetchDashboardData({ ability, onSessionExpired }) {
       () => payrollApi.listBatches(),
     ),
     attempt('summary', ability.has('report.view'), () => reportApi.divisionSummary()),
-    attempt('statements', ability.has('statement.view'), () => statementApi.list()),
+    attempt(
+      'statements',
+      ability.hasAny('statement.view', 'payslip.view_self'),
+      () => statementApi.list(),
+    ),
   ])
 
   if (ability.has('employee.view') && data.employees.length > 0) {
@@ -326,16 +331,7 @@ export default function Dashboard({ user, ability, onNavigate, onSessionExpired 
   filteredBatches.forEach((b) => { statusMap[b.status] = (statusMap[b.status] || 0) + 1 })
   const statusChart = Object.entries(statusMap)
 
-  const now = new Date()
-  const ageBuckets = { '0-2 days': 0, '3-5 days': 0, '>5 days': 0 }
-  filteredBatches.filter((b) => b.status === 'SUBMITTED').forEach((b) => {
-    const created = b.createdAt ? new Date(b.createdAt) : null
-    const days = created ? (now - created) / 86400000 : 0
-    if (days <= 2) ageBuckets['0-2 days']++
-    else if (days <= 5) ageBuckets['3-5 days']++
-    else ageBuckets['>5 days']++
-  })
-  const ageChart = Object.entries(ageBuckets)
+  const ageChart = approvalAgeCounts(filteredBatches).map(({ label, count }) => [label, count])
 
   return (
     <>

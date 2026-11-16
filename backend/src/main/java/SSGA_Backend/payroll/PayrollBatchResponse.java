@@ -21,6 +21,7 @@ public record PayrollBatchResponse(
         BigDecimal deductionTotal,
         BigDecimal netTotal,
         OffsetDateTime createdAt,
+        OffsetDateTime submittedAt,
         List<EmployeeTotals> employees,
         String message,
         long version

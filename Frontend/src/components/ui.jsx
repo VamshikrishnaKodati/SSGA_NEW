@@ -241,7 +241,13 @@ export function DataTable({
             )
           })}
         </tbody>
-        {footer && <tfoot>{footer}</tfoot>}
+        {footer && (
+          <tfoot>
+            <tr>
+              <td colSpan={columns.length}>{footer}</td>
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   )

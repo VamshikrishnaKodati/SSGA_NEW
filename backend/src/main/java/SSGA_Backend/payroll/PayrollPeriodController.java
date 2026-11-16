@@ -24,7 +24,7 @@ public class PayrollPeriodController {
 
     @GetMapping
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.view') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('payroll.verify') "
@@ -39,7 +39,7 @@ public class PayrollPeriodController {
 
     @GetMapping("/{periodId}/scope-summary")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.view') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('payroll.verify') "

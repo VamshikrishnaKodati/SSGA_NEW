@@ -62,7 +62,8 @@ public class ImportJobController {
 
     @GetMapping
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create') "
@@ -78,7 +79,8 @@ public class ImportJobController {
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
     )
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"
@@ -91,7 +93,8 @@ public class ImportJobController {
 
     @PostMapping("/{jobId}/analyze")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create') "
@@ -106,7 +109,8 @@ public class ImportJobController {
 
     @PutMapping("/{jobId}/sheets/{sheetIndex}/mapping")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"
@@ -127,7 +131,8 @@ public class ImportJobController {
 
     @PostMapping("/{jobId}/sheets/{sheetIndex}/validate")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"
@@ -143,7 +148,8 @@ public class ImportJobController {
 
     @GetMapping("/{jobId}/sheets/{sheetIndex}/automap")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"
@@ -157,7 +163,8 @@ public class ImportJobController {
 
     @GetMapping("/{jobId}/sheets/{sheetIndex}/preview")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create') "
@@ -176,7 +183,8 @@ public class ImportJobController {
             produces = "text/csv"
     )
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create') "
@@ -198,9 +206,23 @@ public class ImportJobController {
                 .body(csv.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
+    @GetMapping("/assignable-users")
+    @PreAuthorize(
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
+            + "or hasAuthority('user.manage') "
+            + "or hasAuthority('salary.manage') "
+            + "or hasAuthority('payroll.prepare') "
+            + "or hasAuthority('payroll.approve')"
+    )
+    public ResponseEntity<java.util.List<ImportJobAssignableUserResponse>> assignableUsers() {
+        return ResponseEntity.ok(assignmentService.assignableUsers());
+    }
+
     @PostMapping("/{jobId}/assignments")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('user.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
@@ -217,7 +239,8 @@ public class ImportJobController {
 
     @GetMapping("/{jobId}/sheets/{sheetIndex}/error-rows")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"
@@ -233,7 +256,8 @@ public class ImportJobController {
 
     @PostMapping("/{jobId}/sheets/{sheetIndex}/corrections")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create')"
@@ -250,7 +274,8 @@ public class ImportJobController {
 
     @GetMapping("/{jobId}/review-summary")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create') "
@@ -264,7 +289,8 @@ public class ImportJobController {
 
     @GetMapping("/{jobId}/events")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create') "
@@ -279,7 +305,8 @@ public class ImportJobController {
 
     @PostMapping("/{jobId}/import-draft")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('salary.manage')"
     )
@@ -291,7 +318,7 @@ public class ImportJobController {
 
     @PostMapping("/{jobId}/submit")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.submit') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('salary.manage')"
@@ -304,7 +331,7 @@ public class ImportJobController {
 
     @PostMapping("/{jobId}/approve")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.approve')"
     )
     public ResponseEntity<ImportJobWorkflowResponse> approve(
@@ -325,7 +352,7 @@ public class ImportJobController {
 
     @PostMapping("/{jobId}/reject")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.approve')"
     )
     public ResponseEntity<ImportJobWorkflowResponse> reject(
@@ -337,7 +364,7 @@ public class ImportJobController {
 
     @PostMapping("/{jobId}/finalize")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.finalize')"
     )
     public ResponseEntity<ImportJobWorkflowResponse> finalizeImport(
@@ -357,7 +384,8 @@ public class ImportJobController {
 
     @GetMapping("/{jobId}/progress")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('import.manage') "
             + "or hasAuthority('salary.manage') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('employee.create') "

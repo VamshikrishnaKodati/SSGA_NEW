@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
-import { payrollApi, periodApi } from '../services/api.js'
+import { payrollApi, periodApi, importApi } from '../services/api.js'
 import { useLoader } from '../lib/useLoader.js'
-import { formatAmount, friendlyError, humanizeStatus } from '../lib/format.js'
+import { formatAmount, formatDateTime, friendlyError, humanizeStatus } from '../lib/format.js'
 import {
   canListApprovalBatches,
   filterApprovalBatches,
@@ -52,6 +52,15 @@ export default function ApprovalInbox({ user, ability, onSessionExpired, onNavig
 
   const canApprove = ability.has('payroll.approve')
   const canFinalize = ability.has('payroll.finalize')
+  const imports = useLoader(() => importApi.listJobs(), [], { enabled: canApprove })
+  const importRows = useMemo(
+    () => (imports.data || []).filter((job) => (
+      job.status === 'AWAITING_APPROVAL'
+      && job.submittedBy !== user.userId
+      && job.uploadedBy !== user.userId
+    )),
+    [imports.data, user.userId],
+  )
   const rows = useMemo(() => {
     return filterApprovalBatches(batches.data || [], tab)
   }, [batches.data, tab])
@@ -105,6 +114,24 @@ export default function ApprovalInbox({ user, ability, onSessionExpired, onNavig
       setBusy(false)
     }
   }, [batches, loadDetail, onSessionExpired])
+
+  const runImportAction = useCallback(async (fn, success) => {
+    setBusy(true)
+    setError('')
+    setMessage('')
+
+    try {
+      const result = await fn()
+      setMessage(result?.message || success)
+      setAction(null)
+      await imports.reload()
+    } catch (requestError) {
+      if (requestError?.status === 401 && onSessionExpired) onSessionExpired()
+      setError(friendlyError(requestError))
+    } finally {
+      setBusy(false)
+    }
+  }, [imports, onSessionExpired])
 
   const isMaker = detail && detail.makerId === user.userId
 
@@ -179,6 +206,64 @@ export default function ApprovalInbox({ user, ability, onSessionExpired, onNavig
                     : 'No open batches'
               }
               emptyDescription="No batches match this filter in your authorized scope"
+            />
+          )}
+        </section>
+      )}
+
+      {canApprove && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h3>Import jobs awaiting approval</h3>
+              <p>Submitted imports in your scope, and the approvers assigned to them.</p>
+            </div>
+            <button type="button" className="btn ghost sm" onClick={imports.reload}>
+              <Icon name="refresh" size={13} /> Refresh
+            </button>
+          </div>
+
+          {imports.loading ? (
+            <div className="panel-body"><LoadingState rows={3} /></div>
+          ) : imports.error ? (
+            <div className="panel-body"><Alert kind="error">{imports.error}</Alert></div>
+          ) : (
+            <DataTable
+              columns={[
+                { key: 'fileName', label: 'File', render: (row) => <span className="cell-primary">{row.fileName}</span> },
+                { key: 'submittedBy', label: 'Submitted by', render: (row) => (row.submittedBy === user.userId ? 'You' : `User ${row.submittedBy}`) },
+                { key: 'submittedAt', label: 'Submitted', render: (row) => formatDateTime(row.submittedAt) },
+                { key: 'rows', label: 'Rows', align: 'right', render: (row) => `${row.validRows} valid${row.errorRows ? ` · ${row.errorRows} errors` : ''}` },
+                { key: 'approvers', label: 'Approvers', render: (row) => row.approvers || 'Any authorized approver' },
+                {
+                  key: 'actions',
+                  label: '',
+                  render: (row) => (
+                    <div className="btn-row">
+                      <button
+                        type="button"
+                        className="btn ghost sm"
+                        disabled={busy}
+                        onClick={() => runImportAction(() => importApi.approve(row.jobId), 'Import job approved.')}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        className="btn danger sm"
+                        disabled={busy}
+                        onClick={() => setAction({ type: 'job-reject', jobId: row.jobId })}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  ),
+                },
+              ]}
+              rows={importRows}
+              rowKey={(row) => row.jobId}
+              emptyTitle="No import jobs awaiting approval"
+              emptyDescription="Submitted imports in your scope will appear here"
             />
           )}
         </section>
@@ -328,13 +413,19 @@ export default function ApprovalInbox({ user, ability, onSessionExpired, onNavig
 
       <ReasonDialog
         open={Boolean(action)}
-        title="Reject batch"
-        description="The rejection reason is recorded against the batch"
+        title={action?.type === 'job-reject' ? 'Reject import job' : 'Reject batch'}
+        description={action?.type === 'job-reject'
+          ? 'The rejection reason is recorded against the import job'
+          : 'The rejection reason is recorded against the batch'}
         label="Rejection reason"
-        confirmLabel="Reject batch"
+        confirmLabel={action?.type === 'job-reject' ? 'Reject import' : 'Reject batch'}
         busy={busy}
         onCancel={() => setAction(null)}
-        onConfirm={(reason) => runAction(() => payrollApi.reject(action.batchId, reason), action.batchId, 'Batch rejected and returned to the preparer.')}
+        onConfirm={(reason) => (
+          action?.type === 'job-reject'
+            ? runImportAction(() => importApi.reject(action.jobId, reason), 'Import job rejected and returned to the uploader.')
+            : runAction(() => payrollApi.reject(action.batchId, reason), action.batchId, 'Batch rejected and returned to the preparer.')
+        )}
       />
     </>
   )

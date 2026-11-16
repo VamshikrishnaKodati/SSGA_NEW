@@ -32,6 +32,32 @@ public class ImportJobAssignmentService {
         this.rlsContext = rlsContext;
     }
 
+    /**
+     * Active users offered in the assignment picker. ssga_app holds no grant on
+     * public.users, so the list comes from a security-definer function. The
+     * assign call still re-checks can_assign_import_role, so this is a
+     * convenience only.
+     */
+    @Transactional(
+            transactionManager = "dataSourceTransactionManager",
+            readOnly = true
+    )
+    public List<ImportJobAssignableUserResponse> assignableUsers() {
+        rlsContext.setCurrentUser();
+
+        return jdbcTemplate.query(
+                """
+                SELECT user_id, username, display_name
+                FROM app.find_assignable_users()
+                """,
+                (rs, rowNum) -> new ImportJobAssignableUserResponse(
+                        rs.getLong("user_id"),
+                        rs.getString("username"),
+                        rs.getString("display_name")
+                )
+        );
+    }
+
     @Transactional(
             transactionManager = "dataSourceTransactionManager"
     )
@@ -238,6 +264,38 @@ public class ImportJobAssignmentService {
                 request.userId(),
                 role,
                 divisionId
+        );
+
+        String assigneeName = jdbcTemplate.queryForObject(
+                """
+                SELECT display_name
+                FROM app.find_assignable_users()
+                WHERE user_id = ?
+                """,
+                String.class,
+                request.userId()
+        );
+
+        jdbcTemplate.queryForObject(
+                """
+                SELECT app.write_audit_log(
+                    ?, 'IMPORT_JOB', ?::varchar, NULL::bigint, ?::bigint,
+                    NULL::jsonb,
+                    jsonb_build_object(
+                        'assignmentRole', ?::text,
+                        'assigneeUserId', ?::bigint
+                    ),
+                    ?, NULL::uuid
+                )
+                """,
+                Long.class,
+                "IMPORT_ASSIGN_" + role,
+                String.valueOf(jobId),
+                divisionId,
+                role,
+                request.userId(),
+                (assigneeName == null ? "User " + request.userId() : assigneeName)
+                        + " assigned as " + role + " on import job #" + jobId
         );
 
         return findAssignment(assignmentId);

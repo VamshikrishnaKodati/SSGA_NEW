@@ -9,6 +9,10 @@ public record ImportJobSummaryResponse(
         int validRows,
         int errorRows,
         int warningRows,
-        String uploadedAt
+        String uploadedAt,
+        Long uploadedBy,
+        Long submittedBy,
+        String submittedAt,
+        String approvers
 ) {
 }

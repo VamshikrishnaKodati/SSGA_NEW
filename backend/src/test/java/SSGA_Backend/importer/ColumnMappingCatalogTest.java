@@ -144,8 +144,8 @@ class ColumnMappingCatalogTest {
 
     @Test
     void componentKeyStripsCommonSuffixesAndAliases() {
-        assertEquals("BASIC", ColumnMappingCatalog.componentKey("BASIC_PAY"));
-        assertEquals("BASIC", ColumnMappingCatalog.componentKey("basic pay"));
+        assertEquals("BASIC_PAY", ColumnMappingCatalog.componentKey("BASIC_PAY"));
+        assertEquals("BASIC_PAY", ColumnMappingCatalog.componentKey("basic pay"));
         assertEquals("DA", ColumnMappingCatalog.componentKey("DA_PAY"));
         assertEquals("HRA", ColumnMappingCatalog.componentKey("HRA"));
         assertEquals("HRA", ColumnMappingCatalog.componentKey("House Rent Allowance"));

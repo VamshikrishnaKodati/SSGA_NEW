@@ -18,4 +18,11 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    // Playwright specs run in Node, not the browser.
+    files: ['tests/**/*.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ])

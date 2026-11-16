@@ -3,39 +3,20 @@ import { authApi } from '../../services/api.js'
 import { Icon } from '../../components/ui.jsx'
 import './login.css'
 
-// Seeded accounts (see database/19_clean_slate_and_demo_setup.sql).
+// Seeded accounts (see database/seed_demo_users.sql): exactly one per distinct
+// spec role, so every role dashboard and permission set can be exercised.
 // Passwords are supplied by the local/staging operator, never embedded here.
 const DEMO_ACCOUNTS = [
   { username: 'sysadmin', role: 'System Administrator', scope: 'Organization-wide' },
-  { username: 'gm_md', role: 'General Manager (MD)', scope: 'Organization-wide' },
-  { username: 'gm_ed', role: 'General Manager (ED)', scope: 'Organization-wide' },
-  { username: 'so_finance', role: 'Senior Officer F&A (CGM Finance)', scope: 'Organization-wide' },
-  { username: 'so_tech', role: 'Senior Officer F&A (CGM Technical)', scope: 'Organization-wide' },
+  { username: 'orgadmin', role: 'Organization Administrator', scope: 'Organization-wide' },
   { username: 'ce_om', role: 'Chief Engineer (O&M)', scope: 'O&M Wing' },
-  { username: 'ce_projects', role: 'Chief Engineer (Projects)', scope: 'Projects Wing' },
-  { username: 'ce_trans', role: 'Chief Engineer (Transmission)', scope: 'Transmission Wing' },
-  { username: 'se_cir1', role: 'Superintending Engineer (Circle I)', scope: 'O&M Circle I' },
-  { username: 'se_cir2', role: 'Superintending Engineer (Circle II)', scope: 'O&M Circle II' },
-  { username: 'se_cir3', role: 'Superintending Engineer (Circle III)', scope: 'O&M Circle III' },
-  { username: 'se_cir4', role: 'Superintending Engineer (Circle IV)', scope: 'O&M Circle IV' },
-  { username: 'se_pcc1', role: 'Superintending Engineer (PCC-I)', scope: 'PCC-I' },
-  { username: 'se_pcc2', role: 'Superintending Engineer (PCC-II)', scope: 'PCC-II' },
-  { username: 'ee_div1', role: 'Executive Engineer (Div I)', scope: 'O&M Division I' },
-  { username: 'ee_div2', role: 'Executive Engineer (Div II)', scope: 'O&M Division II' },
-  { username: 'ee_div7', role: 'Executive Engineer (Div VII)', scope: 'O&M Division VII' },
-  { username: 'ee_div13', role: 'Executive Engineer (Div XIII)', scope: 'O&M Division XIII' },
-  { username: 'ee_div19', role: 'Executive Engineer (Div XIX)', scope: 'O&M Division XIX' },
-  { username: 'ee_prj1', role: 'Executive Engineer (Project Div I)', scope: 'Project Division I' },
-  { username: 'ee_trn1', role: 'Executive Engineer (Trans Circle I)', scope: 'Transmission Circle I' },
-  { username: 'ee_elec', role: 'Executive Engineer (Electrical)', scope: 'Electrical Project Division' },
-  { username: 'ee_qc', role: 'Executive Engineer (Quality Control)', scope: 'Quality Control Division' },
-  { username: 'ee_board', role: 'Executive Engineer (Board Office)', scope: 'Board Office' },
-  { username: 'payroll_off1', role: 'Payroll Officer 1', scope: 'Organization-wide' },
-  { username: 'payroll_off2', role: 'Payroll Officer 2', scope: 'Organization-wide' },
-  { username: 'itadmin', role: 'IT Administrator', scope: 'Organization-wide' },
-  { username: 'emp001', role: 'Employee (Temp)', scope: 'Own records' },
-  { username: 'emp002', role: 'Employee (Temp)', scope: 'Own records' },
-  { username: 'emp003', role: 'Employee (Temp)', scope: 'Own records' },
+  { username: 'ee_div1', role: 'Division Administrator', scope: 'O&M Division I' },
+  { username: 'payroll_off1', role: 'Payroll Operator (Maker)', scope: 'O&M Division I' },
+  { username: 'gm_md', role: 'Approving Authority (Checker)', scope: 'Organization-wide' },
+  { username: 'fin_finalizer', role: 'Finance Finalizer', scope: 'Organization-wide' },
+  { username: 'auditor', role: 'Auditor', scope: 'Organization-wide' },
+  { username: 'report_user', role: 'Report User', scope: 'O&M Division I' },
+  { username: 'emp001', role: 'Employee (self service)', scope: 'Own records' },
 ]
 
 // Demo password pre-filled when a demo account is selected. Must match the

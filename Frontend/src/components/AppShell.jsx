@@ -9,7 +9,9 @@ import SalaryComponents from '../pages/SalaryComponents.jsx'
 import ApprovalInbox from '../pages/ApprovalInbox.jsx'
 import Reports from '../pages/Reports.jsx'
 import ImportCenter from '../pages/ImportCenter.jsx'
-import AccessConsole from '../pages/AccessConsole.jsx'
+import UserManagement from '../pages/UserManagement.jsx'
+import RoleManagement from '../pages/RoleManagement.jsx'
+import MyAccess from '../pages/MyAccess.jsx'
 import AuditTrail from '../pages/AuditTrail.jsx'
 import Notifications from '../pages/Notifications.jsx'
 import SystemMonitor from '../pages/SystemMonitor.jsx'
@@ -28,7 +30,9 @@ const PAGES = {
   reports: Reports,
   organization: OrganizationMaster,
   'salary-components': SalaryComponents,
-  access: AccessConsole,
+  access: UserManagement,
+  roles: RoleManagement,
+  'my-access': MyAccess,
   audit: AuditTrail,
   notifications: Notifications,
   system: SystemMonitor,

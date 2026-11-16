@@ -35,7 +35,11 @@ export default function StatementWorkspace({ user }) {
   const isAdmin = authorities.includes('ROLE_SYSTEM_ADMIN')
   const can = (authority) => isAdmin || authorities.includes(authority)
 
-  const canViewStatements = can('statement.view') || can('statement.download')
+  // EMPLOYEE holds only payslip.view_self, so a check on statement.view alone
+  // leaves the employee with no tabs at all. Self-service counts as viewing.
+  const canViewStatements = can('statement.view')
+    || can('statement.download')
+    || can('payslip.view_self')
   const canDownload = can('statement.download')
   const canGenerate = can('statement.generate') || can('payroll.finalize')
   const canReissue = can('statement.reissue')

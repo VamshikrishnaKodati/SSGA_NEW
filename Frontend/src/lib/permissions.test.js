@@ -88,3 +88,54 @@ test('employees only see self-service statements and profile navigation', () => 
   assert.ok(!nav.includes('imports'))
   assert.ok(!nav.includes('reports'))
 })
+
+// EMPLOYEE holds only payslip.view_self. A statement gate that checks
+// statement.view alone left the employee with no statements workspace at all.
+test('an employee holding only payslip.view_self still reaches statements', () => {
+  const nav = navigationFor([ROLES.EMPLOYEE_SELF, 'payslip.view_self'])
+
+  assert.ok(nav.includes('statements'))
+  assert.ok(nav.includes('profile'))
+  assert.ok(!nav.includes('payroll'))
+})
+
+// DIV_ADMIN and WING_ADMIN hold user.create / scope.bind, not user.manage.
+test('division and wing admins reach user management without user.manage', () => {
+  const nav = navigationFor([
+    ROLES.DIVISION_ADMIN,
+    'user.create',
+    'user.update',
+    'user.deactivate',
+    'scope.bind',
+  ])
+
+  assert.ok(nav.includes('access'))
+})
+
+// The System Administrator workspace. SYS_ADMIN holds the explicit spec grants,
+// not a wildcard, so the nav has to open on real permission strings.
+test('system administrators reach user and role management', () => {
+  const nav = navigationFor([
+    ROLES.SYSTEM_ADMIN,
+    'user.manage',
+    'user.create',
+    'user.update',
+    'user.view',
+    'role.assign',
+    'role.view',
+    'scope.bind',
+  ])
+
+  assert.ok(nav.includes('access'))
+  assert.ok(nav.includes('roles'))
+  assert.ok(nav.includes('system'))
+  assert.ok(nav.includes('audit'))
+})
+
+// A role that can assign permissions must not automatically reach user records.
+test('role assignment alone does not open user management', () => {
+  const nav = navigationFor([ROLES.AUDITOR, 'role.assign'])
+
+  assert.ok(!nav.includes('access'))
+  assert.ok(nav.includes('roles'))
+})

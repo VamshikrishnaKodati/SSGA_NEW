@@ -350,6 +350,89 @@ export const auditApi = {
   },
 }
 
+export const meApi = {
+  access() {
+    return request('/auth/me/access')
+  },
+}
+
+export const adminUserApi = {
+  list(params = {}) {
+    return request(`/admin/users${query(params)}`)
+  },
+
+  get(id) {
+    return request(`/admin/users/${id}`)
+  },
+
+  create(payload) {
+    return request('/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  },
+
+  update(id, payload) {
+    return request(`/admin/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  },
+
+  replaceScopes(id, scopes) {
+    return request(`/admin/users/${id}/scopes`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scopes }),
+    })
+  },
+
+  setActive(id, active) {
+    const action = active ? 'activate' : 'deactivate'
+    return request(`/admin/users/${id}/${action}`, { method: 'POST' })
+  },
+
+  resetPassword(id, password) {
+    return request(`/admin/users/${id}/password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    })
+  },
+
+  setOverride(id, payload) {
+    return request(`/admin/users/${id}/overrides`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  },
+}
+
+export const adminRoleApi = {
+  list() {
+    return request('/admin/roles')
+  },
+
+  permissions() {
+    return request('/admin/permissions')
+  },
+
+  scopes() {
+    return request('/admin/scopes')
+  },
+
+  replacePermissions(roleId, permissions) {
+    return request(`/admin/roles/${roleId}/permissions`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permissions }),
+    })
+  },
+}
+
 export const statementApi = {
   list({ periodId, divisionId } = {}) {
     return request(`/statements${query({ periodId, divisionId })}`)
@@ -397,6 +480,10 @@ export const importApi = {
     return request(`/import/jobs/${jobId}/sheets/${sheetIndex}/validate`, {
       method: 'POST',
     })
+  },
+
+  assignableUsers() {
+    return request('/import/jobs/assignable-users')
   },
 
   assign(jobId, body) {

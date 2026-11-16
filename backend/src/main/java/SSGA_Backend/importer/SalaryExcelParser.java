@@ -24,17 +24,26 @@ public class SalaryExcelParser {
             ".xlsx", ".xlsm", ".xls", ".csv"
     };
 
-    // Known HMWSSB salary component codes for fuzzy matching
+    // Known HMWSSB salary component codes for fuzzy matching.
+    // Source: HMWSSB Pay Roll Summary Abstract (August 2026), database migration
+    // 43_salary_components_master_reset.sql.
+    // shortcut: a hand-maintained copy of the register, so it can drift silently
+    // (COURT_ATCH was missing for a full migration). Load the codes from
+    // salary_components at runtime, as ImportJobAutoMapService already does,
+    // the next time this set needs editing.
     private static final Set<String> KNOWN_COMPONENT_CODES = Set.of(
-        "BASIC_PAY", "T_SPL_INCREMENT", "FP_PP", "SPL_PAY_G_MITRA", "DA_33_67",
-        "HRA_24", "ADDL_HRA", "CCA", "PETROL_AUTO_ALLOW", "WASHING_ALLOW",
-        "BOARD_FORMATION_DAY", "IR_5_2023", "DA_ARREARS_26_39", "DA_ARREARS_30_03", "DA_ARREARS_33_67",
-        "GPF_EPF", "COURT_ATCH", "PENSION_SCHEME", "TSGLIF", "GIS", "PRC_2020_NPS",
-        "ELECT_CHAR", "FESTIVAL_ADV", "EDCN_ADV", "VEHICLE_ADV", "MOPED_ADV",
-        "EXCESS_SALARY_RECOVERY", "EPF_12_PERCENT", "SBI_LIFE_INSURANCE", "ONE_DAY_SALARY",
-        "MARRIAGE_LOAN", "MGB_AN", "PROF_TAX", "INCOME_TAX", "EPF_PRC_ARREARS",
-        "PRC_EXCESS_RECOVERY", "MGB_PC", "TELANGANA_HARITHA_NIDHI",
-        "CCA_RECOVERY_DARUSSALAM", "SBH_ANAND_NAGAR", "FLAG_DAY_2025", "LIC"
+        "BASIC_PAY", "T_SPL_INC", "FPP", "SPL_PAY_GI", "DA",
+        "HRA", "ADDL_HRA", "CCA", "PETROL_AUTO_ALLOW", "WASHING_ALLOW",
+        "BOARD_FORM_ALLOW", "IR_2023", "DA_ARR_26_39", "DA_ARR_30_03", "DA_ARR_33_67",
+        "GROSS_EARNINGS",
+        "GPF_EPF", "GPF_EPF_LOAN", "PENSION_2009", "TSGLI", "GIS", "PRC_2020_NPS",
+        "ELEC_CHARGES", "FESTIVAL_ADV", "EDN_ADV", "VEHICLE_ADV", "MOPED_ADV",
+        "EXCESS_SAL_REC", "EPF_12_PCT", "SBI_LIFE_INS", "ONE_DAY_SAL",
+        "MARRIAGE_LOAN", "MGB_AN", "PROF_TAX", "INCOME_TAX", "EPF_PRC_LIC_MISC",
+        "PRC_EXCESS_REC", "MGB_PC", "TG_HARITHA_NIDHI",
+        "DARUSSALAM_BANK_REC", "SBI_HIMAYATNAGAR", "FLAG_DAY_FUND", "LIC_PREMIUM",
+        "COURT_ATCH",
+        "TOTAL_DEDUCTIONS", "NET_SALARY"
     );
 
     // Keywords that indicate employee identity columns

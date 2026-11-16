@@ -25,7 +25,7 @@ public class PayrollReportController {
 
     @GetMapping("/division-summary")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('report.view')"
     )
     public ResponseEntity<List<DivisionSummaryRow>> divisionSummary(
@@ -36,7 +36,7 @@ public class PayrollReportController {
 
     @GetMapping(value = "/division-summary.csv", produces = "text/csv")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('export.download')"
     )
     public ResponseEntity<byte[]> divisionSummaryCsv(
@@ -57,7 +57,7 @@ public class PayrollReportController {
 
     @GetMapping("/employees/{employeeId}/history")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('report.view')"
     )
     public ResponseEntity<EmployeeSalaryHistoryResponse> employeeHistory(

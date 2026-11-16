@@ -238,8 +238,11 @@ public class ImportJobAnalysisService {
 
         DataFormatter formatter = new DataFormatter();
 
-        try (Workbook workbook =
-                     WorkbookFactory.create(filePath.toFile())) {
+        // Stream, not File: a File-opened package is read/write, so POI saves it
+        // back on close and overwrites the stored source workbook. The stream
+        // open is read-only and still covers .xls and .xlsx.
+        try (java.io.InputStream workbookStream = java.nio.file.Files.newInputStream(filePath);
+             Workbook workbook = WorkbookFactory.create(workbookStream)) {
 
             if (workbook.getNumberOfSheets() == 0) {
                 throw new ResponseStatusException(

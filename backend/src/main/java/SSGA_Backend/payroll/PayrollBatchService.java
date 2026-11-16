@@ -118,7 +118,7 @@ public class PayrollBatchService {
             );
         }
 
-        Map<Long, BigDecimal> values = loadEffectiveValues(
+        Map<Long, Map<Long, BigDecimal>> values = loadEffectiveValues(
                 employees, period.startDate()
         );
 
@@ -134,17 +134,22 @@ public class PayrollBatchService {
         List<PayrollBatchResponse.EmployeeTotals> totals = new ArrayList<>();
 
         for (EmployeeRef employee : employees) {
+            Map<Long, BigDecimal> amounts = resolveAmounts(
+                    components,
+                    employee.basicPay(),
+                    values.getOrDefault(employee.id(), Map.of()),
+                    employee.hrmsId() + " (" + employee.name() + ")"
+            );
+
             BigDecimal gross = BigDecimal.ZERO;
             BigDecimal deductions = BigDecimal.ZERO;
             List<Object[]> lineRows = new ArrayList<>();
-            int lineCount = 0;
 
             long transactionId = insertTransaction(batchId, employee);
 
             for (Component component : components) {
-                BigDecimal amount = values.getOrDefault(
-                        key(employee.id(), component.id()),
-                        BigDecimal.ZERO
+                BigDecimal amount = amounts.getOrDefault(
+                        component.id(), BigDecimal.ZERO
                 );
 
                 if ("EARNING".equals(component.category())) {
@@ -161,11 +166,19 @@ public class PayrollBatchService {
                         component.category(),
                         amount
                 });
-
-                lineCount++;
             }
 
             BigDecimal net = gross.subtract(deductions);
+
+            if (net.signum() < 0) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Deductions exceed gross pay for " + employee.hrmsId()
+                                + " (" + employee.name() + "): gross "
+                                + gross + ", deductions " + deductions
+                                + ". Check the imported amounts for this employee."
+                );
+            }
 
             jdbcTemplate.update(
                     """
@@ -198,7 +211,7 @@ public class PayrollBatchService {
                     gross,
                     deductions,
                     net,
-                    lineCount
+                    lineRows.size()
             ));
         }
 
@@ -223,7 +236,7 @@ public class PayrollBatchService {
                 period.label(),
                 divisionId,
                 division.name(),
-                '',
+                "",
                 runType,
                 1,
                 "DRAFT",
@@ -233,6 +246,7 @@ public class PayrollBatchService {
                 grossTotal,
                 deductionTotal,
                 netTotal,
+                null,
                 null,
                 totals,
                 "DRAFT batch generated with " + employeeCount + " employees.",
@@ -253,7 +267,7 @@ public class PayrollBatchService {
                        b.run_type, b.run_no, b.status, b.maker_id, b.checker_id,
                        b.employee_count,
                        b.gross_total, b.deduction_total, b.net_total,
-                       b.created_at,
+                       b.created_at, b.submitted_at,
                        b.version
                 FROM public.payroll_batches b
                 JOIN public.payroll_periods p ON p.id = b.period_id
@@ -282,6 +296,7 @@ public class PayrollBatchService {
                         rs.getBigDecimal("deduction_total"),
                         rs.getBigDecimal("net_total"),
                         rs.getObject("created_at", OffsetDateTime.class),
+                        rs.getObject("submitted_at", OffsetDateTime.class),
                         List.of(),
                         null,
                         rs.getLong("version")
@@ -808,16 +823,21 @@ public class PayrollBatchService {
     private List<Component> loadActiveComponents() {
         return jdbcTemplate.query(
                 """
-                SELECT id, component_code, component_name, category
+                SELECT id, component_code, component_name, category,
+                       calculation_type, rate, base_code
                 FROM public.salary_components
                 WHERE status = 'ACTIVE'
+                  AND category <> 'SUMMARY_TOTAL'
                 ORDER BY category, component_code
                 """,
                 (rs, rowNum) -> new Component(
                         rs.getLong("id"),
                         rs.getString("component_code"),
                         rs.getString("component_name"),
-                        rs.getString("category")
+                        rs.getString("category"),
+                        rs.getString("calculation_type"),
+                        rs.getBigDecimal("rate"),
+                        rs.getString("base_code")
                 )
         );
     }
@@ -829,16 +849,20 @@ public class PayrollBatchService {
         return jdbcTemplate.query(
                 """
                 SELECT e.id, e.hrms_id, e.name,
-                       e.division_id, d.wing_id, e.designation_id, e.grade_id
+                       e.division_id, d.wing_id, e.designation_id, e.grade_id,
+                       e.basic_pay
                 FROM public.employees e
                 JOIN public.divisions d ON d.id = e.division_id
                 WHERE e.division_id = ?
                   AND e.status = 'ACTIVE'
-                  AND EXISTS (
-                      SELECT 1 FROM public.employee_salary_values v
-                      WHERE v.employee_id = e.id
-                        AND v.effective_from <= ?
-                        AND (v.effective_to IS NULL OR v.effective_to >= ?)
+                  AND (
+                      e.basic_pay IS NOT NULL
+                      OR EXISTS (
+                          SELECT 1 FROM public.employee_salary_values v
+                          WHERE v.employee_id = e.id
+                            AND v.effective_from <= ?
+                            AND (v.effective_to IS NULL OR v.effective_to >= ?)
+                      )
                   )
                 ORDER BY e.hrms_id
                 """,
@@ -849,7 +873,8 @@ public class PayrollBatchService {
                         rs.getLong("division_id"),
                         rs.getObject("wing_id", Long.class),
                         rs.getObject("designation_id", Long.class),
-                        rs.getObject("grade_id", Long.class)
+                        rs.getObject("grade_id", Long.class),
+                        rs.getBigDecimal("basic_pay")
                 ),
                 divisionId,
                 java.sql.Date.valueOf(onDate),
@@ -857,7 +882,153 @@ public class PayrollBatchService {
         );
     }
 
-    private Map<Long, BigDecimal> loadEffectiveValues(
+    /**
+     * Loads the explicit per-employee component amounts, keyed by employee and
+     * then by component. These are the values an operator or an import supplied;
+     * they always win over anything the formula engine would compute.
+     */
+    /**
+     * Resolves the amount of every active component for one employee.
+     *
+     * <p>Explicit amounts imported or overridden for the employee always win.
+     * Where no explicit amount exists, a PERCENTAGE component is computed from
+     * its rate and base. Two passes are needed because BASIC_PLUS_DA components
+     * read the DA that the first pass produces.
+     *
+     * <p>Anything that cannot be derived is refused rather than defaulted to
+     * zero: a SLAB row with no slab data, or a PERCENTAGE row with no rate or
+     * no base. A silent zero on a deduction is a wrong payslip.
+     *
+     * <p>shortcut: no LOP (leave of absence) pro-ration. There is no LOP field
+     * on employees, payroll_batches or employee_salary_values, so a full month
+     * is always assumed. Add an lop_days column plus its proration once the
+     * business rules for part-month pay are supplied.
+     */
+    static Map<Long, BigDecimal> resolveAmounts(
+            List<Component> components,
+            BigDecimal basicPay,
+            Map<Long, BigDecimal> explicit,
+            String employeeLabel
+    ) {
+        Map<Long, BigDecimal> amounts = new LinkedHashMap<>();
+
+        for (Component component : components) {
+            BigDecimal override = explicit == null ? null : explicit.get(component.id());
+
+            if (override != null) {
+                amounts.put(component.id(), override);
+            }
+        }
+
+        for (Component component : components) {
+            if (amounts.containsKey(component.id())
+                    || !"PERCENTAGE".equals(component.calculationType())) {
+                continue;
+            }
+
+            if ("BASIC_PAY".equals(component.baseCode())) {
+                amounts.put(component.id(), percentage(
+                        requireBasic(basicPay, component, employeeLabel), component
+                ));
+            }
+        }
+
+        BigDecimal da = BigDecimal.ZERO;
+        Component daComponent = findByCode(components, "DA");
+
+        if (daComponent != null) {
+            da = amounts.getOrDefault(daComponent.id(), BigDecimal.ZERO);
+        }
+
+        for (Component component : components) {
+            if (amounts.containsKey(component.id())
+                    || !"PERCENTAGE".equals(component.calculationType())) {
+                continue;
+            }
+
+            if ("BASIC_PLUS_DA".equals(component.baseCode())) {
+                amounts.put(component.id(), percentage(
+                        requireBasic(basicPay, component, employeeLabel).add(da),
+                        component
+                ));
+            }
+        }
+
+        // Basic pay is a FIXED earning, but its value lives on the employee, not
+        // in employee_salary_values. Without this the row contributes zero while
+        // DA/HRA are still derived from basicPay, understating gross.
+        Component basicComponent = findByCode(components, "BASIC_PAY");
+
+        if (basicComponent != null
+                && !amounts.containsKey(basicComponent.id())
+                && basicPay != null) {
+            amounts.put(basicComponent.id(), basicPay);
+        }
+
+        for (Component component : components) {
+            if (amounts.containsKey(component.id())) {
+                continue;
+            }
+
+            if ("FIXED".equals(component.calculationType())) {
+                amounts.put(component.id(), BigDecimal.ZERO);
+                continue;
+            }
+
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Component " + component.code() + " has calculation_type "
+                            + component.calculationType()
+                            + " but no amount was imported for " + employeeLabel
+                            + ", and the payroll engine cannot derive it. "
+                            + "Import an explicit amount for this component."
+            );
+        }
+
+        return amounts;
+    }
+
+    private static Component findByCode(List<Component> components, String code) {
+        for (Component component : components) {
+            if (code.equals(component.code())) {
+                return component;
+            }
+        }
+
+        return null;
+    }
+
+    private static BigDecimal requireBasic(
+            BigDecimal basicPay,
+            Component component,
+            String employeeLabel
+    ) {
+        if (basicPay == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Component " + component.code() + " is a percentage of basic "
+                            + "pay, but " + employeeLabel + " has no basic pay. "
+                            + "Import an explicit amount for this component."
+            );
+        }
+
+        return basicPay;
+    }
+
+    private static BigDecimal percentage(BigDecimal base, Component component) {
+        if (component.rate() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Component " + component.code()
+                            + " is PERCENTAGE but has no rate configured."
+            );
+        }
+
+        // Whole rupees, half-up, matching the Pay Roll Abstract rounding.
+        return base.multiply(component.rate()).setScale(0, java.math.RoundingMode.HALF_UP);
+    }
+
+    private Map<Long, Map<Long, BigDecimal>> loadEffectiveValues(
             List<EmployeeRef> employees,
             java.time.LocalDate onDate
     ) {
@@ -891,14 +1062,15 @@ public class PayrollBatchService {
                 args.toArray()
         );
 
-        Map<Long, BigDecimal> values = new LinkedHashMap<>();
+        Map<Long, Map<Long, BigDecimal>> values = new LinkedHashMap<>();
 
         for (Object[] row : rows) {
             long employeeId = ((Number) row[0]).longValue();
             long componentId = ((Number) row[1]).longValue();
             BigDecimal amount = (BigDecimal) row[2];
 
-            values.putIfAbsent(key(employeeId, componentId), amount);
+            values.computeIfAbsent(employeeId, k -> new LinkedHashMap<>())
+                    .putIfAbsent(componentId, amount);
         }
 
         return values;
@@ -974,10 +1146,6 @@ public class PayrollBatchService {
         return String.format("%04d-%02d", year, month);
     }
 
-    private static long key(long employeeId, long componentId) {
-        return employeeId * 1_000_000L + componentId;
-    }
-
     private record Period(
             long id,
             long organizationId,
@@ -999,7 +1167,15 @@ public class PayrollBatchService {
     ) {
     }
 
-    private record Component(long id, String code, String name, String category) {
+    record Component(
+            long id,
+            String code,
+            String name,
+            String category,
+            String calculationType,
+            BigDecimal rate,
+            String baseCode
+    ) {
     }
 
     private record EmployeeRef(
@@ -1009,7 +1185,8 @@ public class PayrollBatchService {
             long divisionId,
             Long wingId,
             Long designationId,
-            Long gradeId
+            Long gradeId,
+            BigDecimal basicPay
     ) {
     }
 }

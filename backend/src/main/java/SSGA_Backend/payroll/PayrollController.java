@@ -31,7 +31,7 @@ public class PayrollController {
 
     @PostMapping("/generate")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.prepare')"
     )
     public ResponseEntity<PayrollBatchResponse> generate(
@@ -42,7 +42,7 @@ public class PayrollController {
 
     @GetMapping
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.view') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('payroll.verify') "
@@ -59,7 +59,7 @@ public class PayrollController {
 
     @GetMapping("/{batchId}")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.view') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('payroll.verify') "
@@ -76,7 +76,7 @@ public class PayrollController {
 
     @GetMapping("/{batchId}/summary")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.view') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('payroll.verify') "
@@ -93,7 +93,7 @@ public class PayrollController {
 
     @GetMapping("/{batchId}/transactions")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.view') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('payroll.verify') "
@@ -116,7 +116,7 @@ public class PayrollController {
 
     @GetMapping("/{batchId}/transactions/{transactionId}")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.view') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('payroll.verify') "
@@ -136,7 +136,7 @@ public class PayrollController {
 
     @GetMapping("/{batchId}/readiness")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.view') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('payroll.verify') "
@@ -153,7 +153,7 @@ public class PayrollController {
 
     @PostMapping("/{batchId}/verify")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.verify')"
     )
     public ResponseEntity<PayrollBatchStatusResponse> verify(
@@ -164,7 +164,7 @@ public class PayrollController {
 
     @PostMapping("/{batchId}/submit")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.submit') "
             + "or hasAuthority('payroll.prepare')"
     )
@@ -176,7 +176,7 @@ public class PayrollController {
 
     @PostMapping("/{batchId}/approve")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.approve')"
     )
     public ResponseEntity<PayrollBatchStatusResponse> approve(
@@ -187,7 +187,7 @@ public class PayrollController {
 
     @PostMapping("/{batchId}/reject")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.approve')"
     )
     public ResponseEntity<PayrollBatchStatusResponse> reject(
@@ -201,7 +201,7 @@ public class PayrollController {
 
     @PostMapping("/{batchId}/finalize")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.finalize')"
     )
     public ResponseEntity<PayrollBatchStatusResponse> finalizeBatch(
@@ -225,7 +225,7 @@ public class PayrollController {
 
     @GetMapping("/{batchId}/finalization-eligibility")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.finalize')"
     )
     public ResponseEntity<PayrollFinalizationEligibilityResponse> finalizationEligibility(
@@ -239,7 +239,7 @@ public class PayrollController {
 
     @PostMapping("/{batchId}/reopen")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.reopen')"
     )
     public ResponseEntity<PayrollBatchStatusResponse> reopen(
@@ -253,7 +253,7 @@ public class PayrollController {
 
     @PostMapping("/{batchId}/transactions/{transactionId}/correction")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.prepare')"
     )
     public ResponseEntity<PayrollBatchStatusResponse> correctTransaction(
@@ -268,7 +268,7 @@ public class PayrollController {
 
     @GetMapping("/{batchId}/approvals")
     @PreAuthorize(
-            "hasRole('SYSTEM_ADMIN') "
+            "hasRole('SYS_ADMIN') "
             + "or hasAuthority('payroll.view') "
             + "or hasAuthority('payroll.prepare') "
             + "or hasAuthority('payroll.verify') "

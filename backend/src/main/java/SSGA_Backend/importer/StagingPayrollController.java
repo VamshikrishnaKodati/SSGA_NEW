@@ -39,7 +39,7 @@ public class StagingPayrollController {
      * This is the main entry point after upload -> analyze -> map -> validate flow.
      */
     @PostMapping("/from-import-job/{jobId}/sheets/{sheetIndex}")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
     public ResponseEntity<StagingPayrollHeaderResponse> createFromImportJob(
             @PathVariable long jobId,
             @PathVariable int sheetIndex,
@@ -53,7 +53,7 @@ public class StagingPayrollController {
      * Get staging payroll header details.
      */
     @GetMapping("/{headerId}")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('payroll.approve') or hasAuthority('payroll.finalize')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('payroll.approve') or hasAuthority('payroll.finalize')")
     public ResponseEntity<StagingPayrollHeaderResponse> getHeader(@PathVariable UUID headerId) {
         StagingDetailFilterRequest filter = new StagingDetailFilterRequest();
         StagingPayrollDetailPageResponse page = stagingPayrollService.getDetails(headerId, filter, 0, 1);
@@ -90,7 +90,7 @@ public class StagingPayrollController {
      * Filters: validationStatus, hasTempId, divisionMismatch, componentCode
      */
     @GetMapping("/{headerId}/details")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('payroll.approve') or hasAuthority('payroll.finalize')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('payroll.approve') or hasAuthority('payroll.finalize')")
     public ResponseEntity<StagingPayrollDetailPageResponse> getDetails(
             @PathVariable UUID headerId,
             @RequestParam(value = "validationStatus", required = false) java.util.List<String> validationStatus,
@@ -114,7 +114,7 @@ public class StagingPayrollController {
      * Update a single detail row (in-grid edit).
      */
     @PutMapping("/{headerId}/details/{detailId}")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
     public ResponseEntity<StagingDetailRow> updateDetail(
             @PathVariable UUID headerId,
             @PathVariable long detailId,
@@ -128,7 +128,7 @@ public class StagingPayrollController {
      * Bulk update detail rows (e.g., apply division to multiple rows).
      */
     @PutMapping("/{headerId}/details/bulk")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
     public ResponseEntity<Integer> bulkUpdateDetails(
             @PathVariable UUID headerId,
             @RequestBody StagingBulkUpdateRequest request
@@ -141,7 +141,7 @@ public class StagingPayrollController {
      * Assign temporary HRMS IDs for rows missing HRMS ID.
      */
     @PostMapping("/{headerId}/assign-temp-ids")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
     public ResponseEntity<String> assignTempIds(@PathVariable UUID headerId) {
         stagingPayrollService.assignTemporaryHrmsIds(headerId);
         return ResponseEntity.ok("Temporary HRMS IDs assigned");
@@ -151,7 +151,7 @@ public class StagingPayrollController {
      * Recalculate header totals from detail rows.
      */
     @PostMapping("/{headerId}/recalculate")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
     public ResponseEntity<String> recalculate(@PathVariable UUID headerId) {
         stagingPayrollService.recalculateHeaderTotals(headerId);
         return ResponseEntity.ok("Totals recalculated");
@@ -165,7 +165,7 @@ public class StagingPayrollController {
      * Officer (Preparation) submits for Senior Officer verification.
      */
     @PostMapping("/{headerId}/submit")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('payroll.prepare') or hasAuthority('salary.prepare')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('payroll.prepare') or hasAuthority('salary.prepare')")
     public ResponseEntity<StagingPayrollWorkflowResponse> submitForVerification(
             @PathVariable UUID headerId,
             @RequestBody StagingWorkflowRequest request
@@ -178,7 +178,7 @@ public class StagingPayrollController {
      * Senior Officer F&A verifies the payroll.
      */
     @PostMapping("/{headerId}/verify")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('payroll.approve') or hasAuthority('salary.approve')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('payroll.approve') or hasAuthority('salary.approve')")
     public ResponseEntity<StagingPayrollWorkflowResponse> verifyBySO(
             @PathVariable UUID headerId,
             @RequestBody StagingWorkflowRequest request
@@ -191,7 +191,7 @@ public class StagingPayrollController {
      * General Manager approves and locks the monthly ledger.
      */
     @PostMapping("/{headerId}/approve")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('payroll.finalize')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('payroll.finalize')")
     public ResponseEntity<StagingPayrollWorkflowResponse> approveByGM(
             @PathVariable UUID headerId,
             @RequestBody StagingWorkflowRequest request
@@ -204,7 +204,7 @@ public class StagingPayrollController {
      * Reject at any stage.
      */
     @PostMapping("/{headerId}/reject")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('payroll.approve') or hasAuthority('payroll.finalize')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('payroll.approve') or hasAuthority('payroll.finalize')")
     public ResponseEntity<StagingPayrollWorkflowResponse> reject(
             @PathVariable UUID headerId,
             @RequestBody StagingWorkflowRequest request
@@ -217,7 +217,7 @@ public class StagingPayrollController {
      * Get current workflow status and history.
      */
     @GetMapping("/{headerId}/workflow")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('payroll.approve') or hasAuthority('payroll.finalize')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('payroll.approve') or hasAuthority('payroll.finalize')")
     public ResponseEntity<StagingPayrollWorkflowResponse> getWorkflowStatus(@PathVariable UUID headerId) {
         StagingPayrollWorkflowResponse response = stagingPayrollService.getWorkflowStatus(headerId);
         return ResponseEntity.ok(response);
@@ -231,7 +231,7 @@ public class StagingPayrollController {
      * Get all 6 Wings (Level 1).
      */
     @GetMapping("/divisions/wings")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('employee.create')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('employee.create')")
     public ResponseEntity<java.util.List<HmwssbDivisionDto>> getWings() {
         String sql = """
             SELECT id, division_code, division_name, category, wing_code, wing_name, 
@@ -253,7 +253,7 @@ public class StagingPayrollController {
      * Get Circles under a specific Wing (Level 2).
      */
     @GetMapping("/divisions/wings/{wingCode}/circles")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('employee.create')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('employee.create')")
     public ResponseEntity<java.util.List<HmwssbDivisionDto>> getCirclesByWing(@PathVariable String wingCode) {
         String sql = """
             SELECT id, division_code, division_name, category, wing_code, wing_name, 
@@ -275,7 +275,7 @@ public class StagingPayrollController {
      * Get Divisions under a specific Circle (Level 3) - the actual 48 administrative divisions.
      */
     @GetMapping("/divisions/circles/{circleCode}/divisions")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('employee.create')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('employee.create')")
     public ResponseEntity<java.util.List<HmwssbDivisionDto>> getDivisionsByCircle(@PathVariable String circleCode) {
         String sql = """
             SELECT id, division_code, division_name, category, wing_code, wing_name, 
@@ -298,7 +298,7 @@ public class StagingPayrollController {
      * Useful for cascading dropdowns in UI.
      */
     @GetMapping("/divisions/hierarchy")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('employee.create')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('employee.create')")
     public ResponseEntity<java.util.List<HmwssbDivisionDto>> getFullHierarchy() {
         // Get all active nodes
         String sql = """
@@ -342,7 +342,7 @@ public class StagingPayrollController {
      * Get all active divisions (Level 3) flat list for simple dropdown.
      */
     @GetMapping("/divisions")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('employee.create')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare') or hasAuthority('employee.create')")
     public ResponseEntity<java.util.List<HmwssbDivisionDto>> getDivisions(
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "status", defaultValue = "ACTIVE") String status,
@@ -384,7 +384,7 @@ public class StagingPayrollController {
      * Now includes hierarchy info.
      */
     @GetMapping("/divisions/match")
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
+    @PreAuthorize("hasRole('SYS_ADMIN') or hasAuthority('salary.manage') or hasAuthority('payroll.prepare')")
     public ResponseEntity<HmwssbDivisionDto> matchDivision(
             @RequestParam(value = "name", required = false) String name,
             @RequestParam(value = "code", required = false) String code
