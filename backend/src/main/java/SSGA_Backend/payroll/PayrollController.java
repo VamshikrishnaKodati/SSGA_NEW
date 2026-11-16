@@ -266,6 +266,37 @@ public class PayrollController {
         ));
     }
 
+    @PostMapping("/{batchId}/transactions/{transactionId}/hold")
+    @PreAuthorize(
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('payroll.prepare')"
+    )
+    public ResponseEntity<PayrollBatchStatusResponse> holdTransaction(
+            @PathVariable long batchId,
+            @PathVariable long transactionId,
+            @RequestBody(required = false) PayrollDecisionRequest request
+    ) {
+        return ResponseEntity.ok(payrollWorkflowService.hold(
+                batchId,
+                transactionId,
+                request == null ? null : request.reason()
+        ));
+    }
+
+    @PostMapping("/{batchId}/transactions/{transactionId}/release")
+    @PreAuthorize(
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('payroll.prepare')"
+    )
+    public ResponseEntity<PayrollBatchStatusResponse> releaseTransaction(
+            @PathVariable long batchId,
+            @PathVariable long transactionId
+    ) {
+        return ResponseEntity.ok(
+                payrollWorkflowService.release(batchId, transactionId)
+        );
+    }
+
     @GetMapping("/{batchId}/approvals")
     @PreAuthorize(
             "hasRole('SYS_ADMIN') "

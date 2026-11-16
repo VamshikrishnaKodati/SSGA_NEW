@@ -403,7 +403,7 @@ public class PayrollBatchService {
                             """
                             SELECT id, hrms_id_snapshot, name_snapshot,
                                    gross_salary, total_deductions, net_salary,
-                                   status
+                                   status, hold_reason, held_at
                             FROM public.salary_transactions
                             WHERE payroll_batch_id = ?
                             ORDER BY hrms_id_snapshot
@@ -417,6 +417,8 @@ public class PayrollBatchService {
                                     rs.getBigDecimal("total_deductions"),
                                     rs.getBigDecimal("net_salary"),
                                     rs.getString("status"),
+                                    rs.getString("hold_reason"),
+                                    rs.getObject("held_at", OffsetDateTime.class),
                                     new ArrayList<>()
                             ),
                             batchId
@@ -434,6 +436,8 @@ public class PayrollBatchService {
                         transaction.deductions(),
                         transaction.net(),
                         transaction.status(),
+                        transaction.holdReason(),
+                        transaction.heldAt(),
                         transactionLines(transaction.transactionId())
                 ));
             }
@@ -524,10 +528,11 @@ public class PayrollBatchService {
                         """
                         SELECT st.id, st.hrms_id_snapshot, st.name_snapshot,
                                st.gross_salary, st.total_deductions,
-                               st.net_salary, st.status
+                               st.net_salary, st.status,
+                               st.hold_reason, st.held_at
                         FROM public.salary_transactions st
                         """ + where + """
-                        ORDER BY st.hrms_id_snapshot, st.id
+                         ORDER BY st.hrms_id_snapshot, st.id
                         LIMIT ? OFFSET ?
                         """,
                         (rs, rowNum) -> new PayrollBatchDetailResponse
@@ -539,6 +544,8 @@ public class PayrollBatchService {
                                 rs.getBigDecimal("total_deductions"),
                                 rs.getBigDecimal("net_salary"),
                                 rs.getString("status"),
+rs.getString("hold_reason"),
+rs.getObject("held_at", java.time.OffsetDateTime.class),
                                 List.of()
                         ),
                         pageArguments.toArray()
@@ -567,7 +574,7 @@ public class PayrollBatchService {
                         """
                         SELECT st.id, st.hrms_id_snapshot, st.name_snapshot,
                                st.gross_salary, st.total_deductions,
-                               st.net_salary, st.status
+                               st.net_salary, st.status, st.hold_reason, st.held_at
                         FROM public.salary_transactions st
                         WHERE st.payroll_batch_id = ? AND st.id = ?
                         """,
@@ -580,6 +587,8 @@ public class PayrollBatchService {
                                 rs.getBigDecimal("total_deductions"),
                                 rs.getBigDecimal("net_salary"),
                                 rs.getString("status"),
+                                rs.getString("hold_reason"),
+                                rs.getObject("held_at", OffsetDateTime.class),
                                 new ArrayList<>()
                         ),
                         batchId,
@@ -603,6 +612,8 @@ public class PayrollBatchService {
                 transaction.deductions(),
                 transaction.net(),
                 transaction.status(),
+                transaction.holdReason(),
+                transaction.heldAt(),
                 transactionLines(transaction.transactionId())
         );
     }
@@ -696,17 +707,18 @@ public class PayrollBatchService {
                 """
                 INSERT INTO public.salary_transactions (
                     payroll_batch_id, employee_id,
-                    hrms_id_snapshot, name_snapshot,
+                    employee_code_snapshot, hrms_id_snapshot, name_snapshot,
                     wing_id_snapshot, division_id_snapshot,
                     designation_id_snapshot, grade_id_snapshot,
                     gross_salary, total_deductions, net_salary, status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'CALCULATED')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'CALCULATED')
                 RETURNING id
                 """,
                 Long.class,
                 batchId,
                 employee.id(),
+                employee.employeeCode(),
                 employee.hrmsId(),
                 employee.name(),
                 employee.wingId(),
@@ -848,7 +860,7 @@ public class PayrollBatchService {
     ) {
         return jdbcTemplate.query(
                 """
-                SELECT e.id, e.hrms_id, e.name,
+                SELECT e.id, e.hrms_id, e.employee_code, e.name,
                        e.division_id, d.wing_id, e.designation_id, e.grade_id,
                        e.basic_pay
                 FROM public.employees e
@@ -869,6 +881,7 @@ public class PayrollBatchService {
                 (rs, rowNum) -> new EmployeeRef(
                         rs.getLong("id"),
                         rs.getString("hrms_id"),
+                        rs.getString("employee_code"),
                         rs.getString("name"),
                         rs.getLong("division_id"),
                         rs.getObject("wing_id", Long.class),
@@ -1181,6 +1194,7 @@ public class PayrollBatchService {
     private record EmployeeRef(
             long id,
             String hrmsId,
+            String employeeCode,
             String name,
             long divisionId,
             Long wingId,

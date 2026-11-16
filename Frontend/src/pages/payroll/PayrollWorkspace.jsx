@@ -17,6 +17,8 @@ import {
 } from '../../lib/payrollWorkspace.js'
 import { EmptyState } from '../../components/ui.jsx'
 
+const EDITABLE_BATCH_STATUSES = new Set(['DRAFT', 'REJECTED', 'REOPENED'])
+
 const MONTHS = [
   'January',
   'February',
@@ -358,6 +360,8 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
   const [transactionsLoading, setTransactionsLoading] = useState(false)
   const [transactionsError, setTransactionsError] = useState('')
   const [componentDetail, setComponentDetail] = useState(null)
+  const [holdTarget, setHoldTarget] = useState(null)
+  const [holdReason, setHoldReason] = useState('')
   const [componentDetailLoading, setComponentDetailLoading] = useState(false)
   const [componentDetailError, setComponentDetailError] = useState('')
   const [approvalHistory, setApprovalHistory] = useState(null)
@@ -382,6 +386,7 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
   const canSubmit = permissions.can('payroll.submit') || canGenerate
   const canFinalize = permissions.can('payroll.finalize')
   const canReopen = permissions.can('payroll.reopen')
+  const canHold = permissions.can('payroll.prepare')
   const canStatement = permissions.can('statement.generate')
     || permissions.can('payroll.finalize')
   const canViewStatements = permissions.can('statement.view')
@@ -765,6 +770,15 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
   async function refreshAfterAction(batchId) {
     await loadBatches()
     await loadDetail(batchId)
+  }
+
+  /**
+   * A row can only leave the run while the batch is still a draft, and only if
+   * it is not already held. Once submitted, the checker sees a fixed sheet.
+   */
+  function isHoldable(transaction) {
+    return EDITABLE_BATCH_STATUSES.has(selected?.status)
+      && ['CALCULATED', 'VERIFIED', 'EXCEPTION'].includes(transaction.status)
   }
 
   async function runAction(action, batchId) {
@@ -1221,6 +1235,61 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
           </form>
         )}
 
+        {holdTarget && (
+          <form
+            className="reason-form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              runAction(
+                () => payrollApi.holdTransaction(
+                  selected.batchId,
+                  holdTarget.transactionId,
+                  holdReason.trim(),
+                ),
+                selected.batchId,
+              )
+              setHoldTarget(null)
+              setHoldReason('')
+            }}
+          >
+            <strong>Hold {holdTarget.name}</strong>
+            <p>
+              This row is excluded from the totals, verification and submission.
+              The rest of the division still closes on time, and the row can be
+              picked up by a supplementary run.
+            </p>
+            <label htmlFor="hold-reason">Reason (required)</label>
+            <textarea
+              id="hold-reason"
+              value={holdReason}
+              onChange={(event) => setHoldReason(event.target.value)}
+              rows={2}
+              required
+              disabled={busy}
+            />
+            <div className="detail-actions">
+              <button
+                className="module-button"
+                type="submit"
+                disabled={busy || !holdReason.trim()}
+              >
+                Confirm hold
+              </button>
+              <button
+                type="button"
+                className="module-button ghost"
+                disabled={busy}
+                onClick={() => {
+                  setHoldTarget(null)
+                  setHoldReason('')
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+
         {finalizationPrompt && selected.status === 'APPROVED' && (
           <form
             className="reason-form payroll-finalize-confirmation"
@@ -1360,7 +1429,14 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
                 <tr key={transaction.transactionId}>
                   <td>{transaction.name} <span className="inline-meta">· {transaction.employeeCode}</span></td>
                   <td>{transaction.hrmsId || '—'}</td>
-                  <td><StatusChip status={transaction.status} /></td>
+                  <td>
+                    <StatusChip status={transaction.status} />
+                    {transaction.status === 'ON_HOLD' && transaction.holdReason && (
+                      <div className="inline-meta" title={transaction.holdReason}>
+                        Held · {transaction.holdReason}
+                      </div>
+                    )}
+                  </td>
                   <td className="amount">{formatAmount(transaction.gross)}</td>
                   <td className="amount">{formatAmount(transaction.deductions)}</td>
                   <td className="amount">{formatAmount(transaction.net)}</td>
@@ -1372,6 +1448,35 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
                     >
                       Components
                     </button>
+                    {canHold && isHoldable(transaction) && (
+                      <button
+                        type="button"
+                        className="module-button ghost"
+                        disabled={busy}
+                        onClick={() => {
+                          setHoldTarget(transaction)
+                          setHoldReason('')
+                        }}
+                      >
+                        Hold
+                      </button>
+                    )}
+                    {canHold && transaction.status === 'ON_HOLD' && (
+                      <button
+                        type="button"
+                        className="module-button ghost"
+                        disabled={busy}
+                        onClick={() => runAction(
+                          () => payrollApi.releaseTransaction(
+                            selected.batchId,
+                            transaction.transactionId,
+                          ),
+                          selected.batchId,
+                        )}
+                      >
+                        Release
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

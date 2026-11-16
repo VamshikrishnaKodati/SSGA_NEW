@@ -35,6 +35,8 @@ public record PayrollBatchDetailResponse(
             BigDecimal deductions,
             BigDecimal net,
             String status,
+            String holdReason,
+            OffsetDateTime heldAt,
             List<Line> lines
     ) {
     }

@@ -269,6 +269,19 @@ export const payrollApi = {
     return request(`/payroll/batches/${id}/transactions/${transactionId}`)
   },
 
+  holdTransaction(id, transactionId, reason) {
+    return request(`/payroll/batches/${id}/transactions/${transactionId}/hold`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+  },
+
+  releaseTransaction(id, transactionId) {
+    return request(`/payroll/batches/${id}/transactions/${transactionId}/release`, {
+      method: 'POST',
+    })
+  },
+
   approvals(id) {
     return request(`/payroll/batches/${id}/approvals`)
   },

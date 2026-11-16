@@ -266,6 +266,82 @@ class PayrollWorkflowServiceTest {
         assertEquals("APPROVE", approvals.get(0).action());
     }
 
+    @Test
+    void holdingARowRequiresAReason() {
+        jdbc.row("FROM public.payroll_batches", batchRow("DRAFT"));
+
+        ResponseStatusException thrown = assertThrows(
+                ResponseStatusException.class,
+                () -> service.hold(11L, 3L, "   ")
+        );
+
+        assertEquals(HttpStatus.CONFLICT, thrown.getStatusCode());
+        assertTrue(thrown.getReason().contains("reason"));
+    }
+
+    @Test
+    void aSubmittedBatchCannotBeEditedByHoldingRows() {
+        ResponseStatusException thrown = assertThrows(
+                ResponseStatusException.class,
+                () -> service.hold(11L, 3L, "bank account unverified")
+        );
+
+        assertEquals(HttpStatus.CONFLICT, thrown.getStatusCode());
+        assertTrue(thrown.getReason().contains("DRAFT"),
+                "the checker must see a fixed sheet once the batch is submitted");
+    }
+
+    @Test
+    void holdingARowExcludesItFromTheRun() {
+        jdbc.row("FROM public.payroll_batches", batchRow("DRAFT"));
+        jdbc.answer("SELECT count(*) FROM public.salary_transactions", 1);
+        jdbc.answer("SET status = 'ON_HOLD'", 1);
+
+        service.hold(11L, 3L, "bank account unverified");
+
+        assertTrue(jdbc.executedSqlContaining("SET status = 'ON_HOLD'"),
+                "the row must be marked ON_HOLD");
+        assertTrue(jdbc.executedSqlContaining("status <> 'ON_HOLD'"),
+                "the batch totals must skip held rows, otherwise the "
+                        + "disputed employee is still paid");
+    }
+
+    @Test
+    void verificationLeavesHeldRowsAlone() {
+        jdbc.row("FROM public.payroll_batches", batchRow("DRAFT"));
+
+        Map<String, Object> check = new LinkedHashMap<>();
+        check.put("id", 3L);
+        check.put("hrms_id_snapshot", "1001");
+        check.put("name_snapshot", "Ravi Kumar");
+        check.put("status", "VERIFIED");
+        check.put("gross_salary", new BigDecimal("1000"));
+        check.put("total_deductions", new BigDecimal("100"));
+        check.put("net_salary", new BigDecimal("900"));
+        check.put("line_count", 2);
+        check.put("line_gross", new BigDecimal("1000"));
+        check.put("line_deductions", new BigDecimal("100"));
+        check.put("min_amount", new BigDecimal("100"));
+        jdbc.row("FROM public.salary_transactions st", check);
+
+        service.verify(11L);
+
+        assertTrue(jdbc.executedSqlContaining("status NOT IN ('VERIFIED', 'ON_HOLD')"),
+                "a held row must not be flipped back to VERIFIED");
+    }
+
+    @Test
+    void releasingARowPutsItBackIntTheRun() {
+        jdbc.row("FROM public.payroll_batches", batchRow("DRAFT"));
+        jdbc.answer("SELECT count(*) FROM public.salary_transactions", 1);
+        jdbc.answer("status = 'ON_HOLD'", 1);
+
+        service.release(11L, 3L);
+
+        assertTrue(jdbc.executedSqlContaining("SET status = 'CALCULATED'"));
+        assertTrue(jdbc.executedSqlContaining("hold_reason = NULL"));
+    }
+
     private static Map<String, Object> batchRow(String status) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", 11L);

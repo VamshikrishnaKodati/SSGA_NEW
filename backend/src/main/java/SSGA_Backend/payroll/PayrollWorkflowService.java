@@ -62,7 +62,8 @@ public class PayrollWorkflowService {
                 """
                 UPDATE public.salary_transactions
                 SET status = 'VERIFIED'
-                WHERE payroll_batch_id = ? AND status <> 'VERIFIED'
+                WHERE payroll_batch_id = ?
+                  AND status NOT IN ('VERIFIED', 'ON_HOLD')
                 """,
                 batchId
         );
@@ -72,6 +73,111 @@ public class PayrollWorkflowService {
 
         return statusResponse(batchId, batch.status(),
                 "Verified " + verified + " transaction(s).");
+    }
+
+    /**
+     * Takes one salary row out of the payout run without holding the rest of
+     * the division. Held rows are excluded from totals, readiness, verification
+     * and submission, so the remaining employees still close on time.
+     */
+    @Transactional(transactionManager = "dataSourceTransactionManager")
+    public PayrollBatchStatusResponse hold(
+            long batchId,
+            long transactionId,
+            String reason
+    ) {
+        rlsContext.setCurrentUser();
+        Batch batch = requireBatch(batchId);
+        requireHoldable(batch);
+
+        String why = reason == null ? "" : reason.trim();
+
+        if (why.isEmpty()) {
+            throw conflict("A reason is required to hold a salary row.");
+        }
+
+        requireTransactionInBatch(batchId, transactionId);
+
+        int held = jdbcTemplate.update(
+                """
+                UPDATE public.salary_transactions
+                SET status = 'ON_HOLD', hold_reason = ?, held_by = ?, held_at = now()
+                WHERE id = ? AND payroll_batch_id = ? AND status <> 'ON_HOLD'
+                """,
+                why,
+                currentUserId(),
+                transactionId,
+                batchId
+        );
+
+        if (held == 0) {
+            throw conflict("That row is already on hold.");
+        }
+
+        recomputeBatchTotals(batchId);
+        audit(batch, "PAYROLL_HOLD", batch.status(), batch.status(),
+                "held transaction " + transactionId + ": " + why);
+
+        return statusResponse(batchId, batch.status(),
+                "Row placed on hold and excluded from this run.");
+    }
+
+    @Transactional(transactionManager = "dataSourceTransactionManager")
+    public PayrollBatchStatusResponse release(long batchId, long transactionId) {
+        rlsContext.setCurrentUser();
+        Batch batch = requireBatch(batchId);
+        requireHoldable(batch);
+        requireTransactionInBatch(batchId, transactionId);
+
+        int released = jdbcTemplate.update(
+                """
+                UPDATE public.salary_transactions
+                SET status = 'CALCULATED', hold_reason = NULL,
+                    held_by = NULL, held_at = NULL
+                WHERE id = ? AND payroll_batch_id = ? AND status = 'ON_HOLD'
+                """,
+                transactionId,
+                batchId
+        );
+
+        if (released == 0) {
+            throw conflict("That row is not on hold.");
+        }
+
+        recomputeBatchTotals(batchId);
+        audit(batch, "PAYROLL_RELEASE", batch.status(), batch.status(),
+                "released transaction " + transactionId);
+
+        return statusResponse(batchId, batch.status(),
+                "Row returned to the run and must be verified again.");
+    }
+
+    private void requireHoldable(Batch batch) {
+        if (!EDITABLE_STATUSES.contains(batch.status())) {
+            throw conflict("Rows can only be held while the batch is a DRAFT, "
+                    + "REJECTED or REOPENED. Current status: "
+                    + batch.status() + ".");
+        }
+    }
+
+    private void requireTransactionInBatch(long batchId, long transactionId) {
+        Integer count = jdbcTemplate.queryForObject(
+                """
+                SELECT count(*) FROM public.salary_transactions
+                WHERE id = ? AND payroll_batch_id = ?
+                """,
+                Integer.class,
+                transactionId,
+                batchId
+        );
+
+        if (count == null || count == 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "Salary row " + transactionId
+                            + " does not belong to batch " + batchId + "."
+            );
+        }
     }
 
     @Transactional(
@@ -99,7 +205,12 @@ public class PayrollWorkflowService {
         int verified = verifiedCount(batchId);
 
         if (total == 0) {
-            throw conflict("The batch has no salary transactions to submit.");
+            int held = heldCount(batchId);
+
+            throw conflict(held > 0
+                    ? "Every row in this batch is on hold (" + held
+                            + "). Release a row before submitting."
+                    : "The batch has no salary transactions to submit.");
         }
 
         if (verified < total) {
@@ -519,6 +630,7 @@ public class PayrollWorkflowService {
                 LEFT JOIN public.salary_transaction_lines l
                   ON l.salary_transaction_id = st.id
                 WHERE st.payroll_batch_id = ?
+                  AND st.status <> 'ON_HOLD'
                 GROUP BY st.id, st.hrms_id_snapshot, st.name_snapshot,
                          st.status, st.gross_salary, st.total_deductions,
                          st.net_salary
@@ -710,17 +822,19 @@ public class PayrollWorkflowService {
                 UPDATE public.payroll_batches b
                 SET gross_total = agg.gross,
                     deduction_total = agg.deductions,
-                    net_total = agg.gross - agg.deductions
+                    net_total = agg.gross - agg.deductions,
+                    employee_count = agg.employees
                 FROM (
-                    SELECT payroll_batch_id,
-                           COALESCE(SUM(gross_salary), 0) AS gross,
-                           COALESCE(SUM(total_deductions), 0) AS deductions
+                    SELECT COALESCE(SUM(gross_salary), 0) AS gross,
+                           COALESCE(SUM(total_deductions), 0) AS deductions,
+                           count(*)::int AS employees
                     FROM public.salary_transactions
                     WHERE payroll_batch_id = ?
-                    GROUP BY payroll_batch_id
+                      AND status <> 'ON_HOLD'
                 ) agg
-                WHERE b.id = agg.payroll_batch_id
+                WHERE b.id = ?
                 """,
+                batchId,
                 batchId
         );
     }
@@ -730,6 +844,19 @@ public class PayrollWorkflowService {
                 "UPDATE public.payroll_batches SET status = ? WHERE id = ?",
                 status, batch.id()
         );
+    }
+
+    private int heldCount(long batchId) {
+        Integer value = jdbcTemplate.queryForObject(
+                """
+                SELECT count(*) FROM public.salary_transactions
+                WHERE payroll_batch_id = ? AND status = 'ON_HOLD'
+                """,
+                Integer.class,
+                batchId
+        );
+
+        return value == null ? 0 : value;
     }
 
     private int verifiedCount(long batchId) {
@@ -749,7 +876,7 @@ public class PayrollWorkflowService {
         Integer value = jdbcTemplate.queryForObject(
                 """
                 SELECT count(*) FROM public.salary_transactions
-                WHERE payroll_batch_id = ?
+                WHERE payroll_batch_id = ? AND status <> 'ON_HOLD'
                 """,
                 Integer.class,
                 batchId
