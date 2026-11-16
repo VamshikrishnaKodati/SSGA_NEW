@@ -297,6 +297,20 @@ public class PayrollController {
         );
     }
 
+    @PostMapping("/{batchId}/transactions/{transactionId}/transfer")
+    @PreAuthorize(
+            "hasRole('SYS_ADMIN') "
+            + "or hasAuthority('payroll.prepare')"
+    )
+    public ResponseEntity<PayrollBatchDetailResponse> transferTransaction(
+            @PathVariable long batchId,
+            @PathVariable long transactionId
+    ) {
+        return ResponseEntity.ok(
+                payrollBatchService.transferToSupplementary(batchId, transactionId)
+        );
+    }
+
     @GetMapping("/{batchId}/approvals")
     @PreAuthorize(
             "hasRole('SYS_ADMIN') "

@@ -33,13 +33,22 @@ public class PayrollBatchService {
 
     private static final String DEFAULT_RUN_TYPE = "MONTHLY";
 
+    /** Pays the regular monthly salary for a division. */
+    static final String MONTHLY_RUN_TYPE = "MONTHLY";
+
     /**
-     * Payroll run types the generation engine actually supports. Only the
-     * monthly run exists today; supplementary/arrears runs would need their
-     * own approved business rules before they can be accepted here.
+     * Pays rows a regular run left out (held rows, late adjustments, arrears)
+     * without reopening the locked ledger.
+     */
+    static final String SUPPLEMENTARY_RUN_TYPE = "SUPPLEMENTARY";
+
+    /**
+     * Payroll run types the generation engine actually supports. A supplementary
+     * run reuses the regular calculation rules; it only differs in which
+     * employees it picks up.
      */
     static final java.util.Set<String> SUPPORTED_RUN_TYPES =
-            java.util.Set.of(DEFAULT_RUN_TYPE);
+            java.util.Set.of(MONTHLY_RUN_TYPE, SUPPLEMENTARY_RUN_TYPE);
 
     private final JdbcTemplate jdbcTemplate;
     private final RlsContext rlsContext;
@@ -86,15 +95,21 @@ public class PayrollBatchService {
             );
         }
 
-        Long existing = existingBatchId(periodId, divisionId, runType);
+        int runNo = 1;
 
-        if (existing != null) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "A " + runType + " batch already exists for this period and "
-                            + "division (batch " + existing + "). Duplicate "
-                            + "batches are not allowed."
-            );
+        if (MONTHLY_RUN_TYPE.equals(runType)) {
+            Long existing = existingBatchId(periodId, divisionId, runType);
+
+            if (existing != null) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "A " + runType + " batch already exists for this period and "
+                                + "division (batch " + existing + "). Duplicate "
+                                + "batches are not allowed."
+                );
+            }
+        } else {
+            runNo = nextRunNo(periodId, divisionId, runType);
         }
 
         List<Component> components = loadActiveComponents();
@@ -107,14 +122,17 @@ public class PayrollBatchService {
         }
 
         List<EmployeeRef> employees = loadEmployeesWithValues(
-                divisionId, period.startDate()
+                divisionId, period.startDate(), periodId, runType
         );
 
-        if (employees.isEmpty()) {
+        // A supplementary run starts empty and is filled by audited transfers, so
+        // refusing to create one because nobody is left would defeat the point.
+        if (employees.isEmpty() && !SUPPLEMENTARY_RUN_TYPE.equals(runType)) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "No employees with salary values were found in division "
-                            + divisionId + "."
+                            + divisionId + ". Held employees reach a supplementary "
+                            + "run by transfer, not by generation."
             );
         }
 
@@ -125,7 +143,7 @@ public class PayrollBatchService {
         long actorId = currentUserId();
 
         long batchId = insertBatch(
-                periodId, division, runType, actorId
+                periodId, division, runType, runNo, actorId
         );
 
         BigDecimal grossTotal = BigDecimal.ZERO;
@@ -660,6 +678,7 @@ rs.getObject("held_at", java.time.OffsetDateTime.class),
             long periodId,
             Division division,
             String runType,
+            int runNo,
             long actorId
     ) {
         Long batchId;
@@ -671,7 +690,7 @@ rs.getObject("held_at", java.time.OffsetDateTime.class),
                         period_id, wing_id, division_id, run_type, run_no,
                         status, maker_id, division_name_snapshot
                     )
-                    VALUES (?, ?, ?, ?, 1, 'DRAFT', ?, ?)
+                    VALUES (?, ?, ?, ?, ?, 'DRAFT', ?, ?)
                     RETURNING id
                     """,
                     Long.class,
@@ -679,6 +698,7 @@ rs.getObject("held_at", java.time.OffsetDateTime.class),
                     division.wingId(),
                     division.id(),
                     runType,
+                    runNo,
                     actorId,
                     division.name()
             );
@@ -813,6 +833,250 @@ rs.getObject("held_at", java.time.OffsetDateTime.class),
         return Boolean.TRUE.equals(allowed);
     }
 
+    /**
+     * Moves one held row into the open supplementary run for the same period
+     * and division.
+     *
+     * <p>The source batch is never recalculated. A held row was already excluded
+     * from its totals, so moving it cannot change a finalized batch's figures.
+     * The row is marked TRANSFERRED with its destination so it cannot be paid
+     * twice, and the move is written to the audit log.
+     */
+    @Transactional(
+            transactionManager = "dataSourceTransactionManager",
+            rollbackFor = Exception.class
+    )
+    public PayrollBatchDetailResponse transferToSupplementary(
+            long sourceBatchId,
+            long transactionId
+    ) {
+        rlsContext.setCurrentUser();
+
+        SourceRow row = requireTransaction(sourceBatchId, transactionId);
+
+        if (!"ON_HOLD".equals(row.status())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Only a row that is on hold can be moved to a supplementary "
+                            + "run. This row is " + row.status() + "."
+            );
+        }
+
+        Long targetBatchId = openSupplementaryBatchId(
+                row.periodId(),
+                row.divisionId()
+        );
+
+        if (targetBatchId == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "No open supplementary run exists for this period and "
+                            + "division. Create one before moving held rows."
+            );
+        }
+
+        if (targetBatchId == sourceBatchId) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "That row is already in this supplementary run."
+            );
+        }
+
+        Long newTransactionId = jdbcTemplate.queryForObject(
+                """
+                INSERT INTO public.salary_transactions (
+                    payroll_batch_id, employee_id,
+                    employee_code_snapshot, hrms_id_snapshot, name_snapshot,
+                    wing_id_snapshot, division_id_snapshot,
+                    designation_id_snapshot, grade_id_snapshot,
+                    gross_salary, total_deductions, net_salary, status
+                )
+                SELECT ?, employee_id, employee_code_snapshot, hrms_id_snapshot,
+                       name_snapshot, wing_id_snapshot, division_id_snapshot,
+                       designation_id_snapshot, grade_id_snapshot,
+                       gross_salary, total_deductions, net_salary, 'CALCULATED'
+                FROM public.salary_transactions
+                WHERE id = ?
+                RETURNING id
+                """,
+                Long.class,
+                targetBatchId,
+                transactionId
+        );
+
+        if (newTransactionId == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "The held row could not be copied into the supplementary run."
+            );
+        }
+
+        jdbcTemplate.update(
+                """
+                INSERT INTO public.salary_transaction_lines (
+                    salary_transaction_id, salary_component_id,
+                    component_code_snapshot, component_name_snapshot,
+                    category_snapshot, rule_version, amount, calculation_basis
+                )
+                SELECT ?, salary_component_id, component_code_snapshot,
+                       component_name_snapshot, category_snapshot,
+                       rule_version, amount, calculation_basis
+                FROM public.salary_transaction_lines
+                WHERE salary_transaction_id = ?
+                """,
+                newTransactionId,
+                transactionId
+        );
+
+        jdbcTemplate.update(
+                """
+                UPDATE public.salary_transactions
+                SET status = 'TRANSFERRED',
+                    transferred_to_batch_id = ?,
+                    transferred_at = now()
+                WHERE id = ? AND status = 'ON_HOLD'
+                """,
+                targetBatchId,
+                transactionId
+        );
+
+        recomputeBatchTotals(targetBatchId);
+
+        long actorId = currentUserId();
+
+        jdbcTemplate.queryForObject(
+                """
+                SELECT app.write_audit_log(
+                    ?, 'PAYROLL_BATCH', ?::varchar,
+                    ?::bigint, ?::bigint,
+                    jsonb_build_object('status', ?::text),
+                    jsonb_build_object('status', ?::text),
+                    ?, NULL::uuid
+                )
+                """,
+                Long.class,
+                "PAYROLL_TRANSFER",
+                String.valueOf(sourceBatchId),
+                null,
+                null,
+                "ON_HOLD",
+                "TRANSFERRED",
+                "transaction " + transactionId + " moved to supplementary "
+                        + "batch " + targetBatchId + " by user " + actorId
+        );
+
+        return getBatch(targetBatchId);
+    }
+
+    /**
+     * Recalculates one batch's stored totals from its rows. Held rows are
+     * skipped, so a batch that still has rows on hold reports only what it will
+     * actually pay.
+     */
+    private void recomputeBatchTotals(long batchId) {
+        jdbcTemplate.update(
+                """
+                UPDATE public.payroll_batches b
+                SET gross_total = agg.gross,
+                    deduction_total = agg.deductions,
+                    net_total = agg.gross - agg.deductions,
+                    employee_count = agg.employees
+                FROM (
+                    SELECT COALESCE(SUM(gross_salary), 0) AS gross,
+                           COALESCE(SUM(total_deductions), 0) AS deductions,
+                           count(*)::int AS employees
+                    FROM public.salary_transactions
+                    WHERE payroll_batch_id = ?
+                      AND status <> 'ON_HOLD'
+                      AND status <> 'TRANSFERRED'
+                ) agg
+                WHERE b.id = ?
+                """,
+                batchId,
+                batchId
+        );
+    }
+
+    private SourceRow requireTransaction(long batchId, long transactionId) {
+        List<SourceRow> rows = jdbcTemplate.query(
+                """
+                SELECT st.id, st.status, st.payroll_batch_id,
+                       b.period_id, st.division_id_snapshot
+                FROM public.salary_transactions st
+                JOIN public.payroll_batches b ON b.id = st.payroll_batch_id
+                WHERE st.id = ? AND st.payroll_batch_id = ?
+                """,
+                (rs, rowNum) -> new SourceRow(
+                        rs.getLong("id"),
+                        rs.getString("status"),
+                        rs.getLong("period_id"),
+                        rs.getObject("division_id_snapshot", Long.class)
+                ),
+                transactionId,
+                batchId
+        );
+
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "Salary row " + transactionId + " does not belong to batch "
+                            + batchId + "."
+            );
+        }
+
+        return rows.get(0);
+    }
+
+    private record SourceRow(
+            long id,
+            String status,
+            long periodId,
+            Long divisionId
+    ) {
+    }
+
+    private Long openSupplementaryBatchId(long periodId, Long divisionId) {
+        if (divisionId == null) {
+            return null;
+        }
+
+        List<Long> ids = jdbcTemplate.query(
+                """
+                SELECT id FROM public.payroll_batches
+                WHERE period_id = ? AND division_id = ?
+                  AND run_type = ?
+                  AND status IN ('DRAFT', 'REJECTED', 'REOPENED')
+                ORDER BY run_no DESC
+                """,
+                (rs, rowNum) -> rs.getLong("id"),
+                periodId,
+                divisionId,
+                SUPPLEMENTARY_RUN_TYPE
+        );
+
+        return ids.isEmpty() ? null : ids.get(0);
+    }
+
+    /**
+     * Next sequential run number for a repeatable run type. Supplementary runs
+     * are numbered 1, 2, 3 ... per period and division; the monthly run is
+     * always run 1.
+     */
+    private int nextRunNo(long periodId, long divisionId, String runType) {
+        Integer current = jdbcTemplate.queryForObject(
+                """
+                SELECT COALESCE(MAX(run_no), 0) FROM public.payroll_batches
+                WHERE period_id = ? AND division_id = ? AND run_type = ?
+                """,
+                Integer.class,
+                periodId,
+                divisionId,
+                runType
+        );
+
+        return (current == null ? 0 : current) + 1;
+    }
+
     private Long existingBatchId(
             long periodId,
             long divisionId,
@@ -854,10 +1118,22 @@ rs.getObject("held_at", java.time.OffsetDateTime.class),
         );
     }
 
+    /**
+     * Active employees in a division who have salary values on the run date.
+     *
+     * <p>An employee whose row is ON_HOLD in another batch of the same period
+     * and division is skipped. They reach a supplementary run only through an
+     * explicit, audited transfer, so generating a supplementary run can never
+     * silently pay somebody the regular run is still holding back.
+     */
     private List<EmployeeRef> loadEmployeesWithValues(
             long divisionId,
-            java.time.LocalDate onDate
+            java.time.LocalDate onDate,
+            long periodId,
+            String runType
     ) {
+        boolean supplementary = SUPPLEMENTARY_RUN_TYPE.equals(runType);
+
         return jdbcTemplate.query(
                 """
                 SELECT e.id, e.hrms_id, e.employee_code, e.name,
@@ -876,6 +1152,19 @@ rs.getObject("held_at", java.time.OffsetDateTime.class),
                             AND (v.effective_to IS NULL OR v.effective_to >= ?)
                       )
                   )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM public.salary_transactions st
+                      JOIN public.payroll_batches b ON b.id = st.payroll_batch_id
+                      WHERE st.employee_id = e.id
+                        AND b.period_id = ?
+                        AND st.division_id_snapshot = e.division_id
+                        AND (
+                            st.status = 'ON_HOLD'
+                            OR (? AND st.status <> 'TRANSFERRED'
+                                    AND b.run_type = 'MONTHLY')
+                        )
+                  )
                 ORDER BY e.hrms_id
                 """,
                 (rs, rowNum) -> new EmployeeRef(
@@ -891,7 +1180,9 @@ rs.getObject("held_at", java.time.OffsetDateTime.class),
                 ),
                 divisionId,
                 java.sql.Date.valueOf(onDate),
-                java.sql.Date.valueOf(onDate)
+                java.sql.Date.valueOf(onDate),
+                periodId,
+                supplementary
         );
     }
 
@@ -1045,6 +1336,11 @@ rs.getObject("held_at", java.time.OffsetDateTime.class),
             List<EmployeeRef> employees,
             java.time.LocalDate onDate
     ) {
+        // An empty supplementary run has nobody to load; IN () is not valid SQL.
+        if (employees.isEmpty()) {
+            return Map.of();
+        }
+
         String placeholders = String.join(",",
                 java.util.Collections.nCopies(employees.size(), "?"));
 

@@ -282,6 +282,12 @@ export const payrollApi = {
     })
   },
 
+  transferTransaction(id, transactionId) {
+    return request(`/payroll/batches/${id}/transactions/${transactionId}/transfer`, {
+      method: 'POST',
+    })
+  },
+
   approvals(id) {
     return request(`/payroll/batches/${id}/approvals`)
   },

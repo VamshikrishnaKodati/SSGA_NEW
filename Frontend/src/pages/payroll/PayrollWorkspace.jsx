@@ -457,7 +457,10 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
     selectedDivision,
     visibleDivisions,
   )
-  const duplicateBatch = hasMonthlyBatch(batches, periodId, divisionId)
+  const [generateRunType, setGenerateRunType] = useState('MONTHLY')
+  const duplicateBatch = generateRunType === 'SUPPLEMENTARY'
+    ? false
+    : hasMonthlyBatch(batches, periodId, divisionId)
   const searchedBatches = useMemo(() => {
     const queryText = batchSearch.trim().toLowerCase()
     const rows = batches.filter((batch) =>
@@ -833,9 +836,9 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
       const result = await payrollApi.generate(
         Number(selectedPeriod.id),
         Number(selectedDivision.id),
-        'MONTHLY',
+        generateRunType,
       )
-      setMessage(result.message || 'Monthly payroll batch generated.')
+      setMessage(result.message || `${generateRunType} payroll batch generated.`)
       await loadBatches()
       if (result.batchId) {
         await loadDetail(result.batchId)
@@ -1477,6 +1480,23 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
                         Release
                       </button>
                     )}
+                    {canHold && transaction.status === 'ON_HOLD' && (
+                      <button
+                        type="button"
+                        className="module-button ghost"
+                        disabled={busy}
+                        title="Move this row into the open supplementary run for this period and division"
+                        onClick={() => runAction(
+                          () => payrollApi.transferTransaction(
+                            selected.batchId,
+                            transaction.transactionId,
+                          ),
+                          selected.batchId,
+                        )}
+                      >
+                        Move to supplementary
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1705,10 +1725,6 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
             <p className="muted-text">
               A batch is selected for review. Return to the batch list and clear the selection before starting a separate generation workflow.
             </p>
-          ) : duplicateBatch ? (
-            <Alert kind="error">
-              A monthly batch already exists for this period and division. Open the existing batch instead of generating a duplicate.
-            </Alert>
           ) : !processableScope ? (
             <Alert kind="error">
               Generation is available only for an active division in an OPEN period.
@@ -1719,12 +1735,35 @@ function BatchesPanel({ permissions, user, onSessionExpired, onNavigate }) {
             <p className="muted-text">Your role cannot generate batches.</p>
           ) : (
             <form className="payroll-generate-form" onSubmit={handleGenerate}>
+              {duplicateBatch && (
+                <Alert kind="error">
+                  A monthly batch already exists for this period and division. Open the
+                  existing batch, or pick a supplementary run below.
+                </Alert>
+              )}
               <div>
                 <strong>{selectedPeriod?.label} · {selectedDivision?.name}</strong>
-                <span>Monthly run · period status {selectedPeriod?.status}</span>
+                <span>Run type · period status {selectedPeriod?.status}</span>
               </div>
+              <label className="field">
+                <span>Run type</span>
+                <select
+                  value={generateRunType}
+                  onChange={(event) => setGenerateRunType(event.target.value)}
+                  disabled={busy}
+                >
+                  <option value="MONTHLY">MONTHLY — regular salary</option>
+                  <option value="SUPPLEMENTARY">SUPPLEMENTARY — held rows and arrears</option>
+                </select>
+              </label>
+              {generateRunType === 'SUPPLEMENTARY' && (
+                <p className="muted-text">
+                  A supplementary run starts empty. Move held rows into it from the
+                  row actions on a batch; finalized batches are never recalculated.
+                </p>
+              )}
               <button className="module-button" type="submit" disabled={busy || duplicateBatch || !batchesLoaded}>
-                {busy ? 'Generating…' : 'Generate monthly salary batch'}
+                {busy ? 'Generating…' : `Generate ${generateRunType.toLowerCase()} salary batch`}
               </button>
             </form>
           )}

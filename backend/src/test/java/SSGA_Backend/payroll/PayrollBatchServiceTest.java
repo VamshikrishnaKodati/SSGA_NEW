@@ -140,6 +140,70 @@ class PayrollBatchServiceTest {
 
     private static final BigDecimal BASIC = new BigDecimal("50000");
 
+    // -----------------------------------------------------------------------
+    // Supplementary runs: a held row is moved, never silently dropped
+    // -----------------------------------------------------------------------
+
+    private static PayrollBatchService supplementaryService(FakeJdbcTemplate jdbc) {
+        jdbc.answer("app.current_user_id", 9L);
+        jdbc.answer("app.write_audit_log", 1L);
+        return new PayrollBatchService(jdbc, mock(RlsContext.class));
+    }
+
+    @Test
+    void onlyAHeldRowCanBeMovedToASupplementaryRun() {
+        FakeJdbcTemplate jdbc = new FakeJdbcTemplate();
+        Map<String, Object> row = new HashMap<>();
+        row.put("id", 3L);
+        row.put("status", "VERIFIED");
+        row.put("payroll_batch_id", 6L);
+        row.put("period_id", 4L);
+        row.put("division_id_snapshot", 2L);
+        jdbc.row("FROM public.salary_transactions st", row);
+
+        PayrollBatchService service = supplementaryService(jdbc);
+
+        ResponseStatusException thrown = assertThrows(
+                ResponseStatusException.class,
+                () -> service.transferToSupplementary(6L, 3L)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, thrown.getStatusCode());
+        assertTrue(thrown.getReason().contains("on hold"),
+                "a verified row must not be moved out of a batch, otherwise a "
+                        + "finalized total would change under the checker");
+        assertTrue(jdbc.executedSqlContaining("INSERT INTO public.salary_transactions") == false,
+                "no row may be copied before the hold check passes");
+    }
+
+    @Test
+    void movingAHeldRowNeedsAnOpenSupplementaryRun() {
+        FakeJdbcTemplate jdbc = new FakeJdbcTemplate();
+        Map<String, Object> row = new HashMap<>();
+        row.put("id", 3L);
+        row.put("status", "ON_HOLD");
+        row.put("payroll_batch_id", 6L);
+        row.put("period_id", 4L);
+        row.put("division_id_snapshot", 2L);
+        jdbc.row("FROM public.salary_transactions st", row);
+
+        PayrollBatchService service = supplementaryService(jdbc);
+
+        ResponseStatusException thrown = assertThrows(
+                ResponseStatusException.class,
+                () -> service.transferToSupplementary(6L, 3L)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, thrown.getStatusCode());
+        assertTrue(thrown.getReason().contains("supplementary"));
+    }
+
+    @Test
+    void supplementaryRunTypesAreAcceptedByTheGenerator() {
+        assertEquals("SUPPLEMENTARY",
+                PayrollBatchService.normalizeRunType("supplementary"));
+        assertEquals("MONTHLY", PayrollBatchService.normalizeRunType(null));
+    }
     private static PayrollBatchService.Component component(
             long id, String code, String category,
             String calculationType, String rate, String baseCode
